@@ -47,6 +47,7 @@ import {
   type Topic,
   type TopicFilters,
 } from "@/lib/topics/engine";
+import { hasSpeechRecognition, isMobileLike } from "@/lib/device";
 import { useAudioRecorder } from "@/lib/useAudioRecorder";
 import { useBackupSpeechTranscript } from "@/lib/useBackupSpeechTranscript";
 import { usePracticeTimer } from "@/lib/usePracticeTimer";
@@ -170,13 +171,21 @@ export default function PracticeApp() {
       setStage("speak");
       if (speakStartedAt.current == null) speakStartedAt.current = Date.now();
       backupSpeech.reset();
-      // Primary: record audio for offline transcription. Backup: browser speech API.
-      if (recorder.state === "idle" || recorder.state === "recorded") {
+
+      const mobile = isMobileLike();
+      const canSpeak = hasSpeechRecognition();
+
+      // Phones: MediaRecorder + Web Speech fight for the mic and both often fail.
+      // Prefer live captions on mobile; record+Whisper on desktop (with caption backup).
+      if (mobile && canSpeak) {
+        backupSpeech.start();
+      } else if (recorder.state === "idle" || recorder.state === "recorded") {
         void recorder.start().then(() => {
-          // Start backup after recorder owns the stream briefly
-          window.setTimeout(() => backupSpeech.start(), 400);
+          if (!mobile) {
+            window.setTimeout(() => backupSpeech.start(), 400);
+          }
         });
-      } else {
+      } else if (canSpeak) {
         backupSpeech.start();
       }
     }
@@ -266,37 +275,53 @@ export default function PracticeApp() {
 
     setEvaluating(true);
     setEvalError(null);
-    setTranscribeStatus("Finalizing recording…");
+    setTranscribeStatus("Finalizing…");
     setStage("review");
     timer.reset();
 
+    const mobile = isMobileLike();
     let blob: Blob | null = null;
     try {
-      blob = await recorder.stop();
+      if (recorder.state === "recording") {
+        blob = await recorder.stop();
+      } else {
+        blob = recorder.audioBlob;
+      }
     } catch {
       blob = recorder.audioBlob;
     }
 
     let transcript = backupText;
-    if (blob && blob.size > 800) {
+
+    // Mobile already prefers live captions; only run Whisper if captions are empty.
+    const shouldWhisper =
+      Boolean(blob && blob.size > 800) && (!mobile || !transcript);
+
+    if (shouldWhisper && blob) {
       const whisper = await transcribeWithWhisper(blob, setTranscribeStatus);
-      // Prefer the longer / non-empty transcript between primary and backup
-      if (whisper.text && whisper.text.length >= transcript.length) {
-        transcript = whisper.text;
-      } else if (!transcript && whisper.text) {
-        transcript = whisper.text;
+      if (whisper.text) {
+        if (!transcript || whisper.text.length >= transcript.length) {
+          transcript = whisper.text;
+        }
       }
     }
 
     if (!transcript) {
       setEvalError(
-        "We couldn’t capture your speech clearly. Check the microphone permission and try again.",
+        mobile
+          ? "Couldn’t convert speech to text on this phone. Allow the mic, keep Chrome open with internet (needed for captions), and try again — or use desktop Chrome."
+          : blob && blob.size > 800
+            ? "We saved your recording, but this browser couldn’t convert speech to text. Open Chrome or Edge to score speaking sessions."
+            : "We couldn’t capture your speech clearly. Check the microphone permission and try again.",
       );
       setTranscribeStatus(null);
     }
 
     setFinalTranscript(transcript);
-    pushSessionHistory(durationSec, Boolean(blob && blob.size > 800) || Boolean(transcript));
+    pushSessionHistory(
+      durationSec,
+      Boolean(blob && blob.size > 800) || Boolean(transcript),
+    );
 
     try {
       setTranscribeStatus(
@@ -797,7 +822,9 @@ export default function PracticeApp() {
                       <span className="text-[var(--teal)]">Live captions · </span>
                       {backupSpeech.live
                         ? backupSpeech.live
-                        : "Listening… scoring still uses the full recording if captions pause."}
+                        : isMobileLike()
+                          ? "Listening… keep Chrome open with internet so captions can score this session."
+                          : "Listening… scoring still uses the full recording if captions pause."}
                     </p>
                   )}
 

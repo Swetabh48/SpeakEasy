@@ -1,13 +1,22 @@
 "use client";
 
 type AsrPipeline = (
-  audio: Float32Array,
+  audio: Float32Array | string | URL | Blob,
   options?: Record<string, unknown>,
 ) => Promise<unknown>;
 
-type WhisperDtype = "fp32" | "fp16";
+type WhisperDtype = "fp32" | "fp16" | "q8";
 
 const pipelines = new Map<string, Promise<AsrPipeline>>();
+
+function getAudioContextCtor(): typeof AudioContext | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    AudioContext?: typeof AudioContext;
+    webkitAudioContext?: typeof AudioContext;
+  };
+  return w.AudioContext || w.webkitAudioContext || null;
+}
 
 async function getPipeline(
   model: string,
@@ -21,8 +30,10 @@ async function getPipeline(
         const { pipeline, env } = await import("@huggingface/transformers");
         env.allowLocalModels = false;
         env.useBrowserCache = true;
+        // Prefer WASM on mobile / constrained GPUs — more reliable than webgpu
         return (await pipeline("automatic-speech-recognition", model, {
           dtype,
+          device: "wasm",
         })) as AsrPipeline;
       })(),
     );
@@ -32,9 +43,16 @@ async function getPipeline(
 
 /** Decode blob then resample to 16 kHz mono. */
 async function blobToFloat32_16k(blob: Blob): Promise<Float32Array> {
+  const AC = getAudioContextCtor();
+  if (!AC) throw new Error("No AudioContext");
+
   const buffer = await blob.arrayBuffer();
-  const ctx = new AudioContext();
+  const ctx = new AC();
   try {
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+    // decodeAudioData may detach the buffer — pass a copy
     const decoded = await ctx.decodeAudioData(buffer.slice(0));
     const mixed = new Float32Array(decoded.length);
     for (let c = 0; c < decoded.numberOfChannels; c++) {
@@ -67,10 +85,11 @@ function extractText(result: unknown): string {
   return "";
 }
 
+// Mobile-first: tiny models only. Avoid q8 first (known onnx scale bugs on some builds).
 const ATTEMPTS: { model: string; dtype: WhisperDtype }[] = [
   { model: "Xenova/whisper-tiny.en", dtype: "fp32" },
   { model: "Xenova/whisper-tiny.en", dtype: "fp16" },
-  { model: "Xenova/whisper-base.en", dtype: "fp32" },
+  { model: "Xenova/whisper-tiny.en", dtype: "q8" },
 ];
 
 /**
@@ -97,8 +116,8 @@ export async function transcribeWithWhisper(
       onStatus?.("Transcribing your speech…");
       const asr = await getPipeline(attempt.model, attempt.dtype);
       const result = await asr(audio, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
+        chunk_length_s: 20,
+        stride_length_s: 4,
         return_timestamps: false,
         language: "english",
         task: "transcribe",
@@ -106,7 +125,6 @@ export async function transcribeWithWhisper(
       const text = extractText(result).replace(/\s+/g, " ").trim();
       if (text) return { text, ok: true };
     } catch {
-      // try next config — do not surface internal onnx errors
       pipelines.delete(`${attempt.model}:${attempt.dtype}`);
     }
   }

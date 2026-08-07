@@ -165,9 +165,15 @@ export function useBackupSpeechTranscript() {
     bootRecognizer();
 
     // If captions freeze while you're still talking, force a fresh recognizer
+    // (longer grace on mobile — network STT is slower to first token)
+    const stallMs =
+      typeof navigator !== "undefined" &&
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+        ? 8000
+        : 4500;
     watchdogRef.current = window.setInterval(() => {
       if (!shouldRun.current) return;
-      if (Date.now() - lastResultAt.current > 4500) {
+      if (Date.now() - lastResultAt.current > stallMs) {
         scheduleRestart(0);
       }
     }, 1200);

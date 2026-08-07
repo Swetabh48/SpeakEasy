@@ -2,7 +2,25 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type RecorderState = "idle" | "recording" | "recorded" | "denied" | "unsupported";
+export type RecorderState =
+  | "idle"
+  | "recording"
+  | "recorded"
+  | "denied"
+  | "unsupported";
+
+function pickMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/aac",
+    "audio/ogg;codecs=opus",
+    "audio/ogg",
+  ];
+  return candidates.find((t) => MediaRecorder.isTypeSupported(t)) || "";
+}
 
 export function useAudioRecorder() {
   const [state, setState] = useState<RecorderState>("idle");
@@ -14,6 +32,7 @@ export function useAudioRecorder() {
   const startedAtRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
   const stopResolver = useRef<((blob: Blob | null) => void) | null>(null);
+  const mimeRef = useRef("audio/webm");
 
   const cleanupUrl = useCallback(() => {
     setAudioUrl((prev) => {
@@ -44,12 +63,8 @@ export function useAudioRecorder() {
       });
       streamRef.current = stream;
 
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm")
-          ? "audio/webm"
-          : "";
-
+      const mime = pickMimeType();
+      mimeRef.current = mime || "audio/webm";
       const recorder = mime
         ? new MediaRecorder(stream, { mimeType: mime })
         : new MediaRecorder(stream);
@@ -59,9 +74,8 @@ export function useAudioRecorder() {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, {
-          type: recorder.mimeType || "audio/webm",
-        });
+        const type = recorder.mimeType || mimeRef.current || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
         const url = URL.createObjectURL(blob);
         setAudioBlob(blob);
         setAudioUrl(url);
@@ -73,7 +87,8 @@ export function useAudioRecorder() {
       };
       mediaRecorderRef.current = recorder;
       startedAtRef.current = Date.now();
-      recorder.start(250);
+      // Smaller timeslice helps mobile flush chunks before stop
+      recorder.start(200);
       setState("recording");
     } catch {
       setState("denied");
@@ -85,6 +100,11 @@ export function useAudioRecorder() {
     if (rec && rec.state !== "inactive") {
       return new Promise((resolve) => {
         stopResolver.current = resolve;
+        try {
+          if (rec.state === "recording") rec.requestData();
+        } catch {
+          /* ignore */
+        }
         rec.stop();
       });
     }
