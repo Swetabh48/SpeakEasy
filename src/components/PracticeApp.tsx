@@ -49,6 +49,7 @@ import {
 } from "@/lib/topics/engine";
 import { getSttStrategy } from "@/lib/device";
 import { transcribeViaServer } from "@/lib/serverTranscribe";
+import { sanitizeTranscript } from "@/lib/transcriptClean";
 import { useAudioRecorder } from "@/lib/useAudioRecorder";
 import { useBackupSpeechTranscript } from "@/lib/useBackupSpeechTranscript";
 import { usePracticeTimer } from "@/lib/usePracticeTimer";
@@ -272,13 +273,14 @@ export default function PracticeApp() {
 
   async function runSpeechEvaluation(transcript: string, durationSec: number) {
     if (!topic) return;
+    const cleaned = sanitizeTranscript(transcript);
     setEvaluating(true);
     setEvalError(null);
     setAwaitingManualTranscript(false);
-    setFinalTranscript(transcript);
+    setFinalTranscript(cleaned);
     try {
       setTranscribeStatus(
-        transcript
+        cleaned
           ? "Scoring your attempt…"
           : "No speech detected — scoring as insufficient…",
       );
@@ -290,7 +292,7 @@ export default function PracticeApp() {
         examName: topic.examName,
         difficulty: topic.difficulty,
         category: customField.trim() || topic.category,
-        transcriptOrEssay: transcript,
+        transcriptOrEssay: cleaned,
         durationSec,
         targetSec: speakSec,
       });
@@ -316,7 +318,7 @@ export default function PracticeApp() {
   }
 
   async function scoreManualTranscript() {
-    const text = manualDraft.trim();
+    const text = sanitizeTranscript(manualDraft);
     if (!text || !topic) {
       setEvalError("Type or paste what you said, then score.");
       return;
@@ -335,14 +337,16 @@ export default function PracticeApp() {
       : 0;
     const durationSec = Math.max(0, Math.round(elapsedMs / 1000));
     lastDurationSec.current = durationSec;
-    const backupText = backupSpeech.getFinal() || backupSpeech.live.trim();
+    const backupText = sanitizeTranscript(
+      backupSpeech.getFinal() || backupSpeech.live.trim(),
+    );
     backupSpeech.stop();
 
     setEvaluating(true);
     setEvalError(null);
     setAwaitingManualTranscript(false);
     setManualDraft("");
-    setTranscribeStatus("Finalizing…");
+    setTranscribeStatus("Finalizing recording…");
     setStage("review");
     timer.reset();
 
@@ -359,19 +363,41 @@ export default function PracticeApp() {
     }
 
     let transcript = backupText;
+    let usedLocalAsr = false;
 
-    // Cascade: captions → Moonshine/Whisper in-browser → optional server Whisper → type-in
-    if ((!transcript || strategy === "both") && blob && blob.size > 800) {
-      if (!transcript || strategy !== "captions") {
-        const local = await transcribeInBrowser(
-          blob,
-          setTranscribeStatus,
-          strategy === "record" || strategy === "captions",
-        );
-        if (local.text) {
-          if (!transcript || local.text.length >= transcript.length) {
-            transcript = local.text;
+    // Always prefer on-device ASR when we have audio (phones no longer rely on flaky captions).
+    // Desktop ("both"): merge with captions and keep the cleaner / longer unique text.
+    if (blob && blob.size > 800) {
+      setTranscribeStatus("Transcribing your speech…");
+      const local = await transcribeInBrowser(
+        blob,
+        setTranscribeStatus,
+        strategy === "record",
+      );
+      if (local.text) {
+        usedLocalAsr = true;
+        const localClean = sanitizeTranscript(local.text);
+        if (!transcript) {
+          transcript = localClean;
+        } else if (strategy === "both") {
+          // Prefer ASR if captions look heavily duplicated / much longer artificially
+          const captionWords = transcript.split(/\s+/).length;
+          const asrWords = localClean.split(/\s+/).length;
+          if (
+            localClean.length >= transcript.length * 0.6 ||
+            asrWords >= Math.max(8, captionWords * 0.5)
+          ) {
+            // If captions are mostly repeats of a short phrase, trust ASR
+            const uniqueRatio =
+              new Set(transcript.toLowerCase().split(/\s+/)).size /
+              Math.max(1, captionWords);
+            transcript =
+              uniqueRatio < 0.55 ? localClean : sanitizeTranscript(
+                localClean.length >= transcript.length ? localClean : transcript,
+              );
           }
+        } else {
+          transcript = localClean;
         }
       }
     }
@@ -379,8 +405,10 @@ export default function PracticeApp() {
     if (!transcript && blob && blob.size > 800) {
       setTranscribeStatus("Trying cloud speech-to-text fallback…");
       const server = await transcribeViaServer(blob);
-      if (server.text) transcript = server.text;
+      if (server.text) transcript = sanitizeTranscript(server.text);
     }
+
+    transcript = sanitizeTranscript(transcript);
 
     if (!transcript) {
       pushSessionHistory(durationSec, Boolean(blob && blob.size > 800));
@@ -400,6 +428,9 @@ export default function PracticeApp() {
       durationSec,
       Boolean(blob && blob.size > 800) || Boolean(transcript),
     );
+    if (!usedLocalAsr && strategy === "record") {
+      setTranscribeStatus("Scoring your attempt…");
+    }
     await runSpeechEvaluation(transcript, durationSec);
   }
 
@@ -863,16 +894,16 @@ export default function PracticeApp() {
                       {getSttStrategy() === "record" ? (
                         <>
                           <span className="text-[var(--teal)]">Recording · </span>
-                          {`Keep speaking — this device records audio, then scores with on-device Moonshine (Whisper + type-in as backup).`}
+                          Keep speaking — after you finish we’ll transcribe once
+                          (Moonshine/Whisper). First mobile run may take a minute
+                          while the model downloads.
                         </>
                       ) : (
                         <>
                           <span className="text-[var(--teal)]">Live captions · </span>
                           {backupSpeech.live
                             ? backupSpeech.live
-                            : getSttStrategy() === "captions"
-                              ? "Listening… keep this browser open with internet so captions can score this session."
-                              : "Listening… scoring still uses the full recording if captions pause."}
+                            : "Listening… scoring still uses the full recording if captions pause."}
                         </>
                       )}
                     </p>

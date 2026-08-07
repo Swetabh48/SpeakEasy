@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { appendTranscriptChunk, sanitizeTranscript } from "@/lib/transcriptClean";
 
 type SpeechRec = {
   continuous: boolean;
@@ -31,8 +32,8 @@ function getRecognizer(): SpeechRec | null {
 }
 
 /**
- * Live browser STT while recording.
- * Chrome often stops mid-session; we recreate the recognizer and keep a rolling text buffer.
+ * Live browser STT (desktop backup). Restarts carefully and de-dupes chunks —
+ * mobile Chrome often re-emits the same phrase after every restart.
  */
 export function useBackupSpeechTranscript() {
   const [live, setLive] = useState("");
@@ -44,6 +45,7 @@ export function useBackupSpeechTranscript() {
   const watchdogRef = useRef<number | null>(null);
   const restartTimerRef = useRef<number | null>(null);
   const bootRef = useRef<() => void>(() => {});
+  const restartingRef = useRef(false);
 
   const clearTimers = useCallback(() => {
     if (watchdogRef.current != null) {
@@ -57,8 +59,9 @@ export function useBackupSpeechTranscript() {
   }, []);
 
   const setLiveBoth = useCallback((text: string) => {
-    liveRef.current = text;
-    setLive(text);
+    const cleaned = sanitizeTranscript(text);
+    liveRef.current = cleaned;
+    setLive(cleaned);
   }, []);
 
   const killRecognizer = useCallback(() => {
@@ -80,19 +83,22 @@ export function useBackupSpeechTranscript() {
   }, []);
 
   const scheduleRestart = useCallback(
-    (delayMs = 220) => {
-      if (!shouldRun.current) return;
+    (delayMs = 350) => {
+      if (!shouldRun.current || restartingRef.current) return;
       if (restartTimerRef.current != null) return;
       restartTimerRef.current = window.setTimeout(() => {
         restartTimerRef.current = null;
         if (!shouldRun.current) return;
-        // Keep unfinished interim captions across restarts
-        const kept = liveRef.current.trim();
-        if (kept) finalRef.current = kept;
+        restartingRef.current = true;
+        // Keep committed finals only — do NOT fold interim/live back in
+        // (that caused "data protection" × 5 after each restart).
+        finalRef.current = sanitizeTranscript(finalRef.current);
+        setLiveBoth(finalRef.current);
         bootRef.current();
+        restartingRef.current = false;
       }, delayMs);
     },
-    [],
+    [setLiveBoth],
   );
 
   const bootRecognizer = useCallback(() => {
@@ -114,30 +120,41 @@ export function useBackupSpeechTranscript() {
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const piece = event.results[i]![0]!.transcript;
         if (event.results[i]!.isFinal) {
-          finalRef.current = `${finalRef.current} ${piece}`.trim();
+          finalRef.current = appendTranscriptChunk(finalRef.current, piece);
         } else {
           interim += piece;
         }
       }
-      setLiveBoth(`${finalRef.current} ${interim}`.trim());
+      const interimClean = interim.replace(/\s+/g, " ").trim();
+      // Don't show interim if it's already inside committed finals
+      const showInterim =
+        interimClean &&
+        !finalRef.current.toLowerCase().endsWith(interimClean.toLowerCase()) &&
+        !finalRef.current.toLowerCase().includes(` ${interimClean.toLowerCase()}`);
+      setLiveBoth(
+        showInterim
+          ? `${finalRef.current} ${interimClean}`.trim()
+          : finalRef.current,
+      );
     };
 
     rec.onerror = (ev) => {
       if (!shouldRun.current) return;
       if (ev.error === "aborted" || ev.error === "not-allowed") return;
-      // no-speech / network / service-not-allowed / etc. — reopen stream
-      scheduleRestart(280);
+      // Ignore noisy no-speech loops — wait for watchdog instead of thrashing
+      if (ev.error === "no-speech") return;
+      scheduleRestart(500);
     };
 
     rec.onend = () => {
       if (!shouldRun.current) return;
-      scheduleRestart(180);
+      scheduleRestart(400);
     };
 
     try {
       rec.start();
     } catch {
-      scheduleRestart(400);
+      scheduleRestart(600);
     }
   }, [killRecognizer, scheduleRestart, setLiveBoth]);
 
@@ -152,7 +169,7 @@ export function useBackupSpeechTranscript() {
   }, [clearTimers, killRecognizer]);
 
   const getFinal = useCallback(
-    () => (liveRef.current.trim() || finalRef.current).trim(),
+    () => sanitizeTranscript(liveRef.current.trim() || finalRef.current),
     [],
   );
 
@@ -160,23 +177,18 @@ export function useBackupSpeechTranscript() {
     finalRef.current = "";
     setLiveBoth("");
     shouldRun.current = true;
+    restartingRef.current = false;
     clearTimers();
     lastResultAt.current = Date.now();
     bootRecognizer();
 
-    // If captions freeze while you're still talking, force a fresh recognizer
-    // (longer grace on mobile — network STT is slower to first token)
-    const stallMs =
-      typeof navigator !== "undefined" &&
-      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
-        ? 8000
-        : 4500;
+    // Only restart if truly stalled (longer window — avoids mid-phrase thrash)
     watchdogRef.current = window.setInterval(() => {
       if (!shouldRun.current) return;
-      if (Date.now() - lastResultAt.current > stallMs) {
+      if (Date.now() - lastResultAt.current > 12000) {
         scheduleRestart(0);
       }
-    }, 1200);
+    }, 2000);
   }, [bootRecognizer, clearTimers, scheduleRestart, setLiveBoth]);
 
   const reset = useCallback(() => {

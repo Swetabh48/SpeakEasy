@@ -4,7 +4,6 @@ export function isAppleTouch(): boolean {
   if (typeof window === "undefined") return false;
   const ua = navigator.userAgent || "";
   if (/iPhone|iPad|iPod/i.test(ua)) return true;
-  // iPadOS 13+ often reports as Mac with touch
   try {
     return (
       navigator.platform === "MacIntel" &&
@@ -44,14 +43,15 @@ export function hasSpeechRecognition(): boolean {
 
 /**
  * How to capture speech for scoring:
- * - captions: Web Speech only (Android Chrome — mic conflict with recorder)
- * - record: MediaRecorder + Whisper (/server STT) — iPhone/iPad
- * - both: recorder + Whisper + live caption backup — desktop
+ * - record: MediaRecorder + Moonshine/Whisper (phones/tablets — Web Speech repeats badly)
+ * - both: recorder + in-browser ASR + live caption backup (desktop)
  */
 export type SttStrategy = "captions" | "record" | "both";
 
 export function getSttStrategy(): SttStrategy {
-  if (isAppleTouch()) return "record";
-  if (isMobileLike() && hasSpeechRecognition()) return "captions";
+  // All phones/tablets: record + on-device ASR.
+  // Web Speech on mobile restarts constantly and duplicates phrases ("data protection" × 5),
+  // then skips real transcription and scores that junk instantly.
+  if (isMobileLike()) return "record";
   return "both";
 }
