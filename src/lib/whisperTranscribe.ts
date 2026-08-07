@@ -5,7 +5,15 @@ type AsrPipeline = (
   options?: Record<string, unknown>,
 ) => Promise<unknown>;
 
-type WhisperDtype = "fp32" | "fp16" | "q8";
+type AsrDtype = "fp32" | "fp16" | "q8" | "q4";
+
+type Attempt = {
+  model: string;
+  dtype: AsrDtype;
+  label: string;
+  /** Whisper-style chunking options */
+  whisperOpts?: boolean;
+};
 
 const pipelines = new Map<string, Promise<AsrPipeline>>();
 
@@ -20,7 +28,7 @@ function getAudioContextCtor(): typeof AudioContext | null {
 
 async function getPipeline(
   model: string,
-  dtype: WhisperDtype,
+  dtype: AsrDtype,
 ): Promise<AsrPipeline> {
   const key = `${model}:${dtype}`;
   if (!pipelines.has(key)) {
@@ -30,7 +38,6 @@ async function getPipeline(
         const { pipeline, env } = await import("@huggingface/transformers");
         env.allowLocalModels = false;
         env.useBrowserCache = true;
-        // Prefer WASM on mobile / constrained GPUs — more reliable than webgpu
         return (await pipeline("automatic-speech-recognition", model, {
           dtype,
           device: "wasm",
@@ -42,7 +49,7 @@ async function getPipeline(
 }
 
 /** Decode blob then resample to 16 kHz mono. */
-async function blobToFloat32_16k(blob: Blob): Promise<Float32Array> {
+export async function blobToFloat32_16k(blob: Blob): Promise<Float32Array> {
   const AC = getAudioContextCtor();
   if (!AC) throw new Error("No AudioContext");
 
@@ -52,7 +59,6 @@ async function blobToFloat32_16k(blob: Blob): Promise<Float32Array> {
     if (ctx.state === "suspended") {
       await ctx.resume();
     }
-    // decodeAudioData may detach the buffer — pass a copy
     const decoded = await ctx.decodeAudioData(buffer.slice(0));
     const mixed = new Float32Array(decoded.length);
     for (let c = 0; c < decoded.numberOfChannels; c++) {
@@ -85,21 +91,64 @@ function extractText(result: unknown): string {
   return "";
 }
 
-// Mobile-first: tiny models only. Avoid q8 first (known onnx scale bugs on some builds).
-const ATTEMPTS: { model: string; dtype: WhisperDtype }[] = [
-  { model: "Xenova/whisper-tiny.en", dtype: "fp32" },
-  { model: "Xenova/whisper-tiny.en", dtype: "fp16" },
-  { model: "Xenova/whisper-tiny.en", dtype: "q8" },
+/**
+ * Mobile / iPad first: Moonshine (edge ASR), then Whisper tiny.
+ * All free, in-browser, open-source via transformers.js.
+ */
+const MOBILE_ATTEMPTS: Attempt[] = [
+  {
+    model: "onnx-community/moonshine-tiny-ONNX",
+    dtype: "fp32",
+    label: "Moonshine",
+  },
+  {
+    model: "onnx-community/moonshine-tiny-ONNX",
+    dtype: "q4",
+    label: "Moonshine",
+  },
+  {
+    model: "Xenova/whisper-tiny.en",
+    dtype: "fp32",
+    label: "Whisper",
+    whisperOpts: true,
+  },
+  {
+    model: "Xenova/whisper-tiny.en",
+    dtype: "fp16",
+    label: "Whisper",
+    whisperOpts: true,
+  },
+];
+
+const DESKTOP_ATTEMPTS: Attempt[] = [
+  {
+    model: "Xenova/whisper-tiny.en",
+    dtype: "fp32",
+    label: "Whisper",
+    whisperOpts: true,
+  },
+  {
+    model: "Xenova/whisper-tiny.en",
+    dtype: "fp16",
+    label: "Whisper",
+    whisperOpts: true,
+  },
+  {
+    model: "onnx-community/moonshine-tiny-ONNX",
+    dtype: "fp32",
+    label: "Moonshine",
+  },
 ];
 
 /**
- * Transcribe a recorded audio blob.
- * Tries multiple model settings; returns "" on total failure (never throws tech errors to UI).
+ * Transcribe a recorded audio blob in the browser (no paid API).
+ * @param preferEdge — try Moonshine before Whisper (phones / iPads)
  */
-export async function transcribeWithWhisper(
+export async function transcribeInBrowser(
   blob: Blob,
   onStatus?: (msg: string) => void,
-): Promise<{ text: string; ok: boolean }> {
+  preferEdge = false,
+): Promise<{ text: string; ok: boolean; engine?: string }> {
   if (!blob || blob.size < 800) return { text: "", ok: false };
 
   let audio: Float32Array;
@@ -111,23 +160,40 @@ export async function transcribeWithWhisper(
   }
   if (audio.length < 1600) return { text: "", ok: false };
 
-  for (const attempt of ATTEMPTS) {
+  const attempts = preferEdge ? MOBILE_ATTEMPTS : DESKTOP_ATTEMPTS;
+
+  for (const attempt of attempts) {
     try {
-      onStatus?.("Transcribing your speech…");
+      onStatus?.(
+        preferEdge && attempt.label === "Moonshine"
+          ? "Transcribing on-device (Moonshine)…"
+          : `Transcribing your speech (${attempt.label})…`,
+      );
       const asr = await getPipeline(attempt.model, attempt.dtype);
-      const result = await asr(audio, {
-        chunk_length_s: 20,
-        stride_length_s: 4,
-        return_timestamps: false,
-        language: "english",
-        task: "transcribe",
-      });
+      const opts = attempt.whisperOpts
+        ? {
+            chunk_length_s: 20,
+            stride_length_s: 4,
+            return_timestamps: false,
+            language: "english",
+            task: "transcribe",
+          }
+        : { return_timestamps: false };
+      const result = await asr(audio, opts);
       const text = extractText(result).replace(/\s+/g, " ").trim();
-      if (text) return { text, ok: true };
+      if (text) return { text, ok: true, engine: attempt.label };
     } catch {
       pipelines.delete(`${attempt.model}:${attempt.dtype}`);
     }
   }
 
   return { text: "", ok: false };
+}
+
+/** @deprecated Prefer transcribeInBrowser — kept for call-site clarity during migrate */
+export async function transcribeWithWhisper(
+  blob: Blob,
+  onStatus?: (msg: string) => void,
+): Promise<{ text: string; ok: boolean }> {
+  return transcribeInBrowser(blob, onStatus, false);
 }

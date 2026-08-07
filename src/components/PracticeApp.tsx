@@ -52,7 +52,7 @@ import { transcribeViaServer } from "@/lib/serverTranscribe";
 import { useAudioRecorder } from "@/lib/useAudioRecorder";
 import { useBackupSpeechTranscript } from "@/lib/useBackupSpeechTranscript";
 import { usePracticeTimer } from "@/lib/usePracticeTimer";
-import { transcribeWithWhisper } from "@/lib/whisperTranscribe";
+import { transcribeInBrowser } from "@/lib/whisperTranscribe";
 
 type Stage =
   | "ready"
@@ -360,13 +360,17 @@ export default function PracticeApp() {
 
     let transcript = backupText;
 
-    // Cascade: captions → in-browser Whisper → optional server Whisper
+    // Cascade: captions → Moonshine/Whisper in-browser → optional server Whisper → type-in
     if ((!transcript || strategy === "both") && blob && blob.size > 800) {
       if (!transcript || strategy !== "captions") {
-        const whisper = await transcribeWithWhisper(blob, setTranscribeStatus);
-        if (whisper.text) {
-          if (!transcript || whisper.text.length >= transcript.length) {
-            transcript = whisper.text;
+        const local = await transcribeInBrowser(
+          blob,
+          setTranscribeStatus,
+          strategy === "record" || strategy === "captions",
+        );
+        if (local.text) {
+          if (!transcript || local.text.length >= transcript.length) {
+            transcript = local.text;
           }
         }
       }
@@ -859,7 +863,7 @@ export default function PracticeApp() {
                       {getSttStrategy() === "record" ? (
                         <>
                           <span className="text-[var(--teal)]">Recording · </span>
-                          {`Keep speaking — on iPad/iPhone we score from the saved audio (and fallbacks), not live captions.`}
+                          {`Keep speaking — this device records audio, then scores with on-device Moonshine (Whisper + type-in as backup).`}
                         </>
                       ) : (
                         <>
