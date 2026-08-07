@@ -1,26 +1,101 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --void: #090b0f;
+  --panel: #12161d;
+  --panel-2: #181d27;
+  --ink: #f3efe6;
+  --muted: #9aa3b2;
+  --line: rgba(243, 239, 230, 0.1);
+  --accent: #e8a849;
+  --teal: #5eead4;
+  --background: var(--void);
+  --foreground: var(--ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-mono);
+  --font-display: var(--font-display);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--void);
+  color: var(--ink);
+  font-family: var(--font-body), system-ui, sans-serif;
+  min-height: 100dvh;
+}
+
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
+}
+
+.font-mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+.bg-mesh {
+  background:
+    radial-gradient(900px 500px at 10% -10%, rgba(232, 168, 73, 0.16), transparent 55%),
+    radial-gradient(700px 480px at 95% 15%, rgba(94, 234, 212, 0.1), transparent 50%),
+    radial-gradient(600px 400px at 50% 110%, rgba(232, 168, 73, 0.08), transparent 55%),
+    linear-gradient(180deg, #0c1017 0%, #090b0f 55%, #07090d 100%);
+}
+
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(243, 239, 230, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(243, 239, 230, 0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+}
+
+::selection {
+  background: rgba(232, 168, 73, 0.35);
+  color: var(--ink);
+}
+
+select option {
+  background: #12161d;
+  color: #f3efe6;
+}
+
+audio {
+  accent-color: var(--accent);
+}
+
+button,
+[role="button"],
+summary {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+a[href] {
+  cursor: pointer;
+}
+
+select,
+input[type="number"],
+input[type="text"],
+input[type="search"] {
+  cursor: text;
+}
+
+select {
+  cursor: pointer;
 }
