@@ -47,7 +47,8 @@ import {
   type Topic,
   type TopicFilters,
 } from "@/lib/topics/engine";
-import { hasSpeechRecognition, isMobileLike } from "@/lib/device";
+import { getSttStrategy } from "@/lib/device";
+import { transcribeViaServer } from "@/lib/serverTranscribe";
 import { useAudioRecorder } from "@/lib/useAudioRecorder";
 import { useBackupSpeechTranscript } from "@/lib/useBackupSpeechTranscript";
 import { usePracticeTimer } from "@/lib/usePracticeTimer";
@@ -121,11 +122,15 @@ export default function PracticeApp() {
   const [evalError, setEvalError] = useState<string | null>(null);
   const [transcribeStatus, setTranscribeStatus] = useState<string | null>(null);
   const [finalTranscript, setFinalTranscript] = useState("");
+  const [manualDraft, setManualDraft] = useState("");
+  const [awaitingManualTranscript, setAwaitingManualTranscript] =
+    useState(false);
   const [pdfName, setPdfName] = useState<string | null>(null);
   const [essayText, setEssayText] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const finishingRef = useRef(false);
   const speakStartedAt = useRef<number | null>(null);
+  const lastDurationSec = useRef(0);
 
   const isEssay = mode === "essay";
   const isDeep = mode === "deep-research";
@@ -172,20 +177,19 @@ export default function PracticeApp() {
       if (speakStartedAt.current == null) speakStartedAt.current = Date.now();
       backupSpeech.reset();
 
-      const mobile = isMobileLike();
-      const canSpeak = hasSpeechRecognition();
-
-      // Phones: MediaRecorder + Web Speech fight for the mic and both often fail.
-      // Prefer live captions on mobile; record+Whisper on desktop (with caption backup).
-      if (mobile && canSpeak) {
+      const strategy = getSttStrategy();
+      // iPad/iPhone: record only (Chrome there is still WebKit — captions unreliable).
+      // Android Chrome: captions only (mic conflict with recorder).
+      // Desktop: both.
+      if (strategy === "captions") {
         backupSpeech.start();
       } else if (recorder.state === "idle" || recorder.state === "recorded") {
         void recorder.start().then(() => {
-          if (!mobile) {
+          if (strategy === "both") {
             window.setTimeout(() => backupSpeech.start(), 400);
           }
         });
-      } else if (canSpeak) {
+      } else if (strategy === "both") {
         backupSpeech.start();
       }
     }
@@ -211,6 +215,8 @@ export default function PracticeApp() {
     setEvalError(null);
     setTranscribeStatus(null);
     setFinalTranscript("");
+    setManualDraft("");
+    setAwaitingManualTranscript(false);
     setEssayText("");
     setPdfName(null);
     setEvaluating(false);
@@ -223,6 +229,8 @@ export default function PracticeApp() {
     setEvalError(null);
     setTranscribeStatus(null);
     setFinalTranscript("");
+    setManualDraft("");
+    setAwaitingManualTranscript(false);
     recorder.reset();
     backupSpeech.reset();
     timer.reset();
@@ -262,67 +270,12 @@ export default function PracticeApp() {
     setStreak(bumpStreak());
   }
 
-  async function finishSpeechSession() {
-    if (!topic || finishingRef.current) return;
-    finishingRef.current = true;
-
-    const elapsedMs = speakStartedAt.current
-      ? Date.now() - speakStartedAt.current
-      : 0;
-    const durationSec = Math.max(0, Math.round(elapsedMs / 1000));
-    const backupText = backupSpeech.getFinal() || backupSpeech.live.trim();
-    backupSpeech.stop();
-
+  async function runSpeechEvaluation(transcript: string, durationSec: number) {
+    if (!topic) return;
     setEvaluating(true);
     setEvalError(null);
-    setTranscribeStatus("Finalizing…");
-    setStage("review");
-    timer.reset();
-
-    const mobile = isMobileLike();
-    let blob: Blob | null = null;
-    try {
-      if (recorder.state === "recording") {
-        blob = await recorder.stop();
-      } else {
-        blob = recorder.audioBlob;
-      }
-    } catch {
-      blob = recorder.audioBlob;
-    }
-
-    let transcript = backupText;
-
-    // Mobile already prefers live captions; only run Whisper if captions are empty.
-    const shouldWhisper =
-      Boolean(blob && blob.size > 800) && (!mobile || !transcript);
-
-    if (shouldWhisper && blob) {
-      const whisper = await transcribeWithWhisper(blob, setTranscribeStatus);
-      if (whisper.text) {
-        if (!transcript || whisper.text.length >= transcript.length) {
-          transcript = whisper.text;
-        }
-      }
-    }
-
-    if (!transcript) {
-      setEvalError(
-        mobile
-          ? "Couldn’t convert speech to text on this phone. Allow the mic, keep Chrome open with internet (needed for captions), and try again — or use desktop Chrome."
-          : blob && blob.size > 800
-            ? "We saved your recording, but this browser couldn’t convert speech to text. Open Chrome or Edge to score speaking sessions."
-            : "We couldn’t capture your speech clearly. Check the microphone permission and try again.",
-      );
-      setTranscribeStatus(null);
-    }
-
+    setAwaitingManualTranscript(false);
     setFinalTranscript(transcript);
-    pushSessionHistory(
-      durationSec,
-      Boolean(blob && blob.size > 800) || Boolean(transcript),
-    );
-
     try {
       setTranscribeStatus(
         transcript
@@ -360,6 +313,90 @@ export default function PracticeApp() {
       setTranscribeStatus(null);
       speakStartedAt.current = null;
     }
+  }
+
+  async function scoreManualTranscript() {
+    const text = manualDraft.trim();
+    if (!text || !topic) {
+      setEvalError("Type or paste what you said, then score.");
+      return;
+    }
+    finishingRef.current = true;
+    pushSessionHistory(lastDurationSec.current, true);
+    await runSpeechEvaluation(text, lastDurationSec.current);
+  }
+
+  async function finishSpeechSession() {
+    if (!topic || finishingRef.current) return;
+    finishingRef.current = true;
+
+    const elapsedMs = speakStartedAt.current
+      ? Date.now() - speakStartedAt.current
+      : 0;
+    const durationSec = Math.max(0, Math.round(elapsedMs / 1000));
+    lastDurationSec.current = durationSec;
+    const backupText = backupSpeech.getFinal() || backupSpeech.live.trim();
+    backupSpeech.stop();
+
+    setEvaluating(true);
+    setEvalError(null);
+    setAwaitingManualTranscript(false);
+    setManualDraft("");
+    setTranscribeStatus("Finalizing…");
+    setStage("review");
+    timer.reset();
+
+    const strategy = getSttStrategy();
+    let blob: Blob | null = null;
+    try {
+      if (recorder.state === "recording") {
+        blob = await recorder.stop();
+      } else {
+        blob = recorder.audioBlob;
+      }
+    } catch {
+      blob = recorder.audioBlob;
+    }
+
+    let transcript = backupText;
+
+    // Cascade: captions → in-browser Whisper → optional server Whisper
+    if ((!transcript || strategy === "both") && blob && blob.size > 800) {
+      if (!transcript || strategy !== "captions") {
+        const whisper = await transcribeWithWhisper(blob, setTranscribeStatus);
+        if (whisper.text) {
+          if (!transcript || whisper.text.length >= transcript.length) {
+            transcript = whisper.text;
+          }
+        }
+      }
+    }
+
+    if (!transcript && blob && blob.size > 800) {
+      setTranscribeStatus("Trying cloud speech-to-text fallback…");
+      const server = await transcribeViaServer(blob);
+      if (server.text) transcript = server.text;
+    }
+
+    if (!transcript) {
+      pushSessionHistory(durationSec, Boolean(blob && blob.size > 800));
+      setFinalTranscript("");
+      setAwaitingManualTranscript(true);
+      setEvalError(
+        "Automatic transcript failed on this device. Type or paste what you said below — you’ll still get a full evaluation.",
+      );
+      setEvaluating(false);
+      setTranscribeStatus(null);
+      speakStartedAt.current = null;
+      finishingRef.current = false;
+      return;
+    }
+
+    pushSessionHistory(
+      durationSec,
+      Boolean(blob && blob.size > 800) || Boolean(transcript),
+    );
+    await runSpeechEvaluation(transcript, durationSec);
   }
 
   async function onPdfSelected(file: File | null) {
@@ -819,12 +856,21 @@ export default function PracticeApp() {
 
                   {stage === "speak" && (
                     <p className="mt-4 max-h-28 overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-3 text-sm text-[var(--muted)]">
-                      <span className="text-[var(--teal)]">Live captions · </span>
-                      {backupSpeech.live
-                        ? backupSpeech.live
-                        : isMobileLike()
-                          ? "Listening… keep Chrome open with internet so captions can score this session."
-                          : "Listening… scoring still uses the full recording if captions pause."}
+                      {getSttStrategy() === "record" ? (
+                        <>
+                          <span className="text-[var(--teal)]">Recording · </span>
+                          {`Keep speaking — on iPad/iPhone we score from the saved audio (and fallbacks), not live captions.`}
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-[var(--teal)]">Live captions · </span>
+                          {backupSpeech.live
+                            ? backupSpeech.live
+                            : getSttStrategy() === "captions"
+                              ? "Listening… keep this browser open with internet so captions can score this session."
+                              : "Listening… scoring still uses the full recording if captions pause."}
+                        </>
+                      )}
                     </p>
                   )}
 
@@ -922,12 +968,21 @@ export default function PracticeApp() {
                       : "Evaluating…"
                     : feedback
                       ? "Evidence-based result"
-                      : "Ended without score"}
+                      : awaitingManualTranscript
+                        ? "Transcript needed"
+                        : "Ended without score"}
                 </h2>
                 {!evaluating && feedback && (
                   <p className="mt-3 max-w-2xl text-[var(--muted)]">{feedback.overall}</p>
                 )}
-                {!evaluating && !feedback && (
+                {!evaluating && !feedback && awaitingManualTranscript && (
+                  <p className="mt-3 max-w-2xl text-[var(--muted)]">
+                    Automatic speech-to-text couldn’t finish on this device. Type
+                    or paste what you said — scoring uses the same evaluator as
+                    desktop.
+                  </p>
+                )}
+                {!evaluating && !feedback && !awaitingManualTranscript && (
                   <p className="mt-3 max-w-2xl text-[var(--muted)]">
                     Practice logged. No marks awarded because you chose to end without submitting content for scoring.
                   </p>
@@ -941,7 +996,38 @@ export default function PracticeApp() {
                 </Panel>
               )}
 
-              {!evaluating && finalTranscript && (
+              {!evaluating && awaitingManualTranscript && (
+                <Panel className="p-5 sm:p-6">
+                  <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+                    Type what you said
+                  </p>
+                  {recorder.audioUrl && (
+                    <div className="mb-4">
+                      <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+                        Playback (optional)
+                      </p>
+                      <audio controls src={recorder.audioUrl} className="w-full" />
+                    </div>
+                  )}
+                  <textarea
+                    value={manualDraft}
+                    onChange={(e) => setManualDraft(e.target.value)}
+                    rows={6}
+                    placeholder="Replay your recording if available, then type the words you spoke…"
+                    className="w-full resize-y rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void scoreManualTranscript()}
+                    disabled={!manualDraft.trim()}
+                    className="mt-4 inline-flex h-12 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] px-8 font-display font-semibold text-[var(--void)] disabled:opacity-40"
+                  >
+                    Score my transcript
+                  </button>
+                </Panel>
+              )}
+
+              {!evaluating && finalTranscript && !awaitingManualTranscript && (
                 <Panel className="p-4">
                   <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
                     Your transcript
