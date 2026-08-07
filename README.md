@@ -4,7 +4,7 @@
 
 Speakeasy is a speech and essay practice studio for competitive exams and open practice. You get generative topics, prep/speak timers, recording, transcription, strict evidence-based scoring, local progress graphs, and coaching tips — without relying on proprietary cloud models by default.
 
-Live app (after deploy): connect your Vercel URL here.
+Live app: [speakeasy-two-peach.vercel.app](https://speakeasy-two-peach.vercel.app)
 
 Repository: [github.com/Swetabh48/SpeakEasy](https://github.com/Swetabh48/SpeakEasy)
 
