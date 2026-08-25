@@ -1,0 +1,12 @@
+{
+  "name": "upsc_rajasthan_history",
+  "profile": {
+    "name": "Ananya Sharma",
+    "homeState": "Rajasthan",
+    "education": { "degree": "BA History", "institution": "University of Rajasthan", "year": 2021 },
+    "optionalSubject": "History",
+    "hobbies": ["trekking", "community tutoring"],
+    "servicePreferences": ["IAS", "IPS"],
+    "track": "upsc-cse"
+  }
+}

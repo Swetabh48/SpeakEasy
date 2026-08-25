@@ -553,6 +553,13 @@ export default function PracticeApp() {
             streak {streak.current} · best {streak.best}
           </MetaChip>
           <Link
+            href="/board"
+            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-sm transition hover:border-[var(--accent)]/40 hover:text-[var(--accent)]"
+          >
+            <span className="hidden sm:inline">Board</span>
+            <span className="sm:hidden">Board</span>
+          </Link>
+          <Link
             href="/profile"
             className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-sm transition hover:border-[var(--accent)]/40 hover:text-[var(--accent)]"
           >

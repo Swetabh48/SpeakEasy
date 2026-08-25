@@ -1,0 +1,13 @@
+{
+  "name": "upsc_bihar_sociology",
+  "profile": {
+    "name": "Aamir Rahman",
+    "homeState": "Bihar",
+    "education": { "degree": "MA Sociology", "institution": "JNU", "year": 2020 },
+    "optionalSubject": "Sociology",
+    "workExperience": "NGO fieldwork on rural education for 18 months",
+    "hobbies": ["writing", "football"],
+    "servicePreferences": ["IAS", "IRS"],
+    "track": "upsc-cse"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "psu_electrical_ntpc",
+  "profile": {
+    "name": "Vikram Singh",
+    "homeState": "Uttar Pradesh",
+    "education": { "degree": "BTech Electrical", "institution": "NIT Allahabad", "year": 2019 },
+    "engineeringBranch": "Electrical",
+    "workExperience": "GATE qualified; campus placement interest in NTPC",
+    "hobbies": ["cricket", "debate"],
+    "servicePreferences": ["NTPC", "PGCIL"],
+    "track": "psu-technical"
+  }
+}

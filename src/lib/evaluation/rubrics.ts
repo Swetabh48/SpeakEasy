@@ -139,13 +139,49 @@ export function getRubric(input: {
     };
   }
 
-  if (/UPSC|IFS|FAST STREAM|FSOT|PSC/i.test(exam) || input.mode === "interview") {
+  if (/UPSC|IFS|FAST STREAM|FSOT|PSC|BOARD|IES|ESE|PSU/i.test(exam) || input.mode === "interview") {
     return {
-      title: `${exam} Interview / personality (strict)`,
+      title: `${exam || "Board"} Interview / personality (strict)`,
       standard:
-        "Grade like a skeptical board: clarity of thought, balanced judgment, ethical awareness, concrete examples. Bluffing and jargon are exposed.",
-      dimensions: SPEECH_COMMON,
-      passHint: "One clear stance, two proofs, one limitation, one close.",
+        "Grade like a skeptical board: DAF consistency, self-awareness, ethical reasoning, composure inferred from wording (not video). Bluffing and jargon are exposed. Camera/discipline signals must never be folded into this score.",
+      dimensions: [
+        {
+          id: "content",
+          label: "DAF consistency & substance",
+          weight: 0.3,
+          toughGuide:
+            "Answers must cohere with claimed background; vague CV-speak without examples scores low.",
+        },
+        {
+          id: "structure",
+          label: "Judgment & structure",
+          weight: 0.22,
+          toughGuide:
+            "Balanced view, clear stance, awareness of trade-offs. Rambling or one-sided slogans sink the mark.",
+        },
+        {
+          id: "clarity",
+          label: "Clarity & language",
+          weight: 0.18,
+          toughGuide:
+            "Precise diction, few fillers, officer-like register.",
+        },
+        {
+          id: "presence",
+          label: "Composure (from transcript)",
+          weight: 0.15,
+          toughGuide:
+            "Inferred from wording only: controlled emphasis, limited hedging fog — never from camera pixels.",
+        },
+        {
+          id: "time",
+          label: "Time discipline",
+          weight: 0.15,
+          toughGuide:
+            "Complete thought within the allotted answer window.",
+        },
+      ],
+      passHint: "One clear stance, two proofs tied to your DAF, one limitation, one close.",
     };
   }
 

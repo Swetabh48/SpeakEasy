@@ -26,6 +26,9 @@ Repository: [github.com/Swetabh48/SpeakEasy](https://github.com/Swetabh48/SpeakE
 | **Session review** | Dimension scores, coaching tips, transcript, optional playback |
 | **Profile & growth** | Dedicated `/profile` page: score trajectory chart, mode mix, rubric averages, strengths / weaknesses, recent evaluations |
 | **History & streaks** | Local device history and streak counters |
+| **Board interview** | Fullscreen UPSC / IES / IFS / PSU panel simulation (`/board`): DAF intake, five-member spoken panel, agentic questions via local FastAPI, optional PDF upload, client-side proctoring |
+
+Full board write-up (what was built, how to run API + app): see **[BOARD_INTERVIEW.md](./BOARD_INTERVIEW.md)**. Backend detail: **[backend/README.md](./backend/README.md)**.
 
 ---
 
@@ -78,24 +81,31 @@ PracticeSpeaking/
 ├── src/app/
 │   ├── page.tsx              # Home → PracticeApp
 │   ├── profile/page.tsx      # Growth dashboard
+│   ├── board/page.tsx        # Govt board interview room
 │   ├── api/evaluate/route.ts # Server evaluation endpoint
 │   ├── icon.tsx              # Speakeasy “S” favicon
 │   └── layout.tsx            # Fonts + metadata
 ├── src/components/
 │   ├── PracticeApp.tsx       # Main practice UX / session state machine
+│   ├── BoardInterview.tsx    # DAF → live panel → answers
+│   ├── DAFIntakeForm.tsx     # Saved DAF + optional PDF
 │   ├── ExamPicker.tsx        # Searchable exam list
 │   ├── ProfileView.tsx       # Charts + stats page
 │   └── Shell.tsx             # Layout shell, brand mark, chips, panels
 ├── src/lib/
-│   ├── topics/               # Banks, exams, fields, engine, fingerprints, deep research
+│   ├── topics/               # Banks, exams, fields, engine, fingerprints, deep research, board types
 │   ├── evaluation/           # Types, rubrics, Ollama/custom API, local grader
+│   ├── board*.ts · daf*.ts   # Board API client, TTS, intent, DAF options/storage
+│   ├── proctor/              # Face / discipline monitoring
 │   ├── whisperTranscribe.ts  # Browser Whisper with dtype fallbacks
 │   ├── useAudioRecorder.ts
 │   ├── useBackupSpeechTranscript.ts
 │   ├── usePracticeTimer.ts
 │   ├── profile.ts            # localStorage evaluations + aggregates
 │   └── storage.ts            # History, streak, seen topics, settings
-└── .env.example              # Evaluator / Ollama configuration
+├── backend/                  # FastAPI board agent + eval harness (local :8000)
+├── BOARD_INTERVIEW.md        # Board feature + session notes
+└── .env.example              # Evaluator / Ollama / board URL configuration
 ```
 
 ### Tech stack
@@ -123,6 +133,14 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+For **board interview**, also start the FastAPI backend (`backend/` → port `8000`) and set:
+
+```bash
+NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8000
+```
+
+Then open [http://localhost:3000/board](http://localhost:3000/board). See [BOARD_INTERVIEW.md](./BOARD_INTERVIEW.md).
 
 | Script | Purpose |
 |---|---|

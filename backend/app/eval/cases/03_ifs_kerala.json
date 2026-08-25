@@ -1,0 +1,12 @@
+{
+  "name": "ifs_kerala_environment",
+  "profile": {
+    "name": "Nisha Nair",
+    "homeState": "Kerala",
+    "education": { "degree": "MSc Environmental Science", "institution": "CUSAT", "year": 2022 },
+    "optionalSubject": "Geography",
+    "hobbies": ["birdwatching", "classical music"],
+    "servicePreferences": ["IFS"],
+    "track": "ifs"
+  }
+}

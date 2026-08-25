@@ -1,0 +1,13 @@
+{
+  "name": "ies_mechanical_bhel",
+  "profile": {
+    "name": "Rohan Mehta",
+    "homeState": "Maharashtra",
+    "education": { "degree": "BTech Mechanical", "institution": "COEP Pune", "year": 2020 },
+    "engineeringBranch": "Mechanical",
+    "workExperience": "2 years at a mid-size OEM as production engineer",
+    "hobbies": ["chess", "running"],
+    "servicePreferences": ["IES", "PSU"],
+    "track": "ies-ese"
+  }
+}
