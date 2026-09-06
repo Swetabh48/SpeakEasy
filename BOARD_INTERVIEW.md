@@ -75,44 +75,37 @@ Nav entry: **Board** on the home shell → `/board`.
 
 ## How to run (local)
 
-You need **two** processes.
-
-### A. Board API (port 8000)
-
-```bash
-cd backend
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-Health: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
-
-Optional Postgres: see `backend/README.md` and `docker-compose.yml`.
-
-Optional Ollama (better questions):
-
-```bash
-# default model in config: qwen2.5:7b
-ollama serve
-```
-
-### B. Next.js app (port 3000)
-
-In repo root `.env.local`:
-
-```bash
-NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8000
-```
+### Default (same as production — any PC)
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000/board](http://localhost:3000/board).
+Open [http://localhost:3000/board](http://localhost:3000/board). Board uses **Next.js `/api/board`**. Do not set `NEXT_PUBLIC_BACKEND_URL`.
+
+### Optional: FastAPI + Ollama agent
+
+```bash
+cd backend
+.\.venv\Scripts\activate
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Set in `.env.local`:
+
+```bash
+NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8000
+```
+
+### Deploy (Vercel)
+
+1. Deploy the Next.js app.
+2. **Remove** `NEXT_PUBLIC_BACKEND_URL` if it points at localhost.
+3. Optional: `EVALUATOR_URL` + `EVALUATOR_API_KEY` for cloud LLM board questions.
+4. Optional: `NEXT_PUBLIC_SENTRY_DSN` for error reporting.
+
+Plan: [speak_readme.md](./speak_readme.md) → [SpeakEasy_ROADMAP.md](./SpeakEasy_ROADMAP.md).
 
 ---
 

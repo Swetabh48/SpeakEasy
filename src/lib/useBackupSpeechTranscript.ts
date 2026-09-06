@@ -199,5 +199,5 @@ export function useBackupSpeechTranscript() {
 
   useEffect(() => () => stop(), [stop]);
 
-  return { live, start, stop, reset, getFinal };
+  return { live, start, stop, reset, getFinal, getLastResultAt: () => lastResultAt.current };
 }

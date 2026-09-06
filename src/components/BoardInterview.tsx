@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, Square } from "lucide-react";
 import { BoardPanelRoom } from "@/components/BoardPanelRoom";
 import { DAFIntakeForm } from "@/components/DAFIntakeForm";
 import { ProctorOverlay } from "@/components/ProctorOverlay";
@@ -46,8 +45,11 @@ type Phase = "intake" | "live" | "ended";
 
 type DebriefPayload = Awaited<ReturnType<typeof fetchBoardDebrief>>;
 
-const TAKE_YOUR_TIME_MS = 12_000;
-const RAMBLE_MS = 75_000;
+const TAKE_YOUR_TIME_MS = 16_000;
+const RAMBLE_MS = 55_000;
+/** Quiet after last transcript growth → hand floor back (no buttons). */
+const SILENCE_HANDOFF_MS = 1_800;
+const MIN_WORDS_FOR_SILENCE = 3;
 
 export function BoardInterview() {
   const [phase, setPhase] = useState<Phase>("intake");
@@ -71,13 +73,25 @@ export function BoardInterview() {
   const roomRef = useRef<HTMLDivElement | null>(null);
   const pauseCueTimer = useRef<number | null>(null);
   const rambleTimer = useRef<number | null>(null);
+  const silenceTimer = useRef<number | null>(null);
+  const lastHeardTextRef = useRef("");
+  const lastSpeechChangeAt = useRef(0);
   const answeredStartedRef = useRef(false);
   const takeTimeSaidRef = useRef(false);
   const submitLock = useRef(false);
+  const autoListenGen = useRef(0);
   /** All discipline events this session (proctor buffer is cleared after each answer). */
   const sessionViolations = useRef<
     { kind: ViolationKind; atMs: number }[]
   >([]);
+  const profileRef = useRef<CandidateProfile | null>(null);
+  const turnsRef = useRef<BoardTurn[]>([]);
+  const beginAnswerRef = useRef<() => Promise<void>>(async () => {});
+  const submitAnswerRef = useRef<(opts?: { fromRamble?: boolean }) => Promise<void>>(
+    async () => {},
+  );
+  profileRef.current = profile;
+  turnsRef.current = turns;
 
   const recorder = useAudioRecorder();
   const captions = useBackupSpeechTranscript();
@@ -92,11 +106,24 @@ export function BoardInterview() {
       window.clearTimeout(rambleTimer.current);
       rambleTimer.current = null;
     }
+    if (silenceTimer.current) {
+      window.clearTimeout(silenceTimer.current);
+      silenceTimer.current = null;
+    }
   }, []);
 
+  // Keyboard only if STT pause-detect fails — never shown as UI chrome
   useEffect(() => {
-    void checkBackendHealth().then(setBackendOk);
-  }, []);
+    if (phase !== "live") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      if (!answering || busy || speaking || submitLock.current) return;
+      e.preventDefault();
+      void submitAnswerRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phase, answering, busy, speaking]);
 
   useEffect(() => {
     if (phase !== "live") {
@@ -128,29 +155,38 @@ export function BoardInterview() {
     return () => document.removeEventListener("fullscreenchange", sync);
   }, []);
 
-  const scheduleTakeYourTime = useCallback(
-    (member: PanelMember) => {
-      takeTimeSaidRef.current = false;
-      answeredStartedRef.current = false;
-      if (pauseCueTimer.current) window.clearTimeout(pauseCueTimer.current);
-      pauseCueTimer.current = window.setTimeout(() => {
-        if (answeredStartedRef.current || takeTimeSaidRef.current) return;
-        takeTimeSaidRef.current = true;
-        const chair = getPanelMember("chair");
-        setStatus(`${chair.name}: take your time…`);
-        speakAsMember("Take your time.", chair);
-      }, TAKE_YOUR_TIME_MS);
-    },
-    [],
-  );
+  const scheduleTakeYourTime = useCallback(() => {
+    takeTimeSaidRef.current = false;
+    if (pauseCueTimer.current) window.clearTimeout(pauseCueTimer.current);
+    pauseCueTimer.current = window.setTimeout(() => {
+      if (answeredStartedRef.current || takeTimeSaidRef.current) return;
+      if (submitLock.current) return;
+      takeTimeSaidRef.current = true;
+      const chair = getPanelMember("chair");
+      setStatus(`${chair.name}: take your time…`);
+      speakAsMember("Take your time.", chair);
+    }, TAKE_YOUR_TIME_MS);
+  }, []);
+
+  const openMicAfterPanel = useCallback(() => {
+    // Continuous flow: panel finishes → mic opens; no "Answer" click needed
+    window.setTimeout(() => {
+      void beginAnswerRef.current();
+    }, 350);
+  }, []);
 
   const askNext = useCallback(
     async (sid: string) => {
       clearPaceTimers();
-      setStatus("Agent deliberating…");
+      autoListenGen.current += 1;
+      setStatus("Panel preparing…");
       setSpeaking(false);
+      setAnswering(false);
       stopBoardSpeech();
-      const res = await fetchBoardQuestion(sid);
+      const res = await fetchBoardQuestion(sid, {
+        profile: profileRef.current || undefined,
+        turns: turnsRef.current,
+      });
       const member = getPanelMember(res.speakerId || undefined);
       setSpeaker(member);
       setCurrentQ(res.question);
@@ -176,11 +212,12 @@ export function BoardInterview() {
       setSpeaking(true);
       speakAsMember(res.question, member, () => {
         setSpeaking(false);
-        setStatus("Your turn — press Answer when ready.");
-        scheduleTakeYourTime(member);
+        setStatus("Your turn — speak naturally. Pause when you are done.");
+        scheduleTakeYourTime();
+        openMicAfterPanel();
       });
     },
-    [clearPaceTimers, scheduleTakeYourTime],
+    [clearPaceTimers, openMicAfterPanel, scheduleTakeYourTime],
   );
 
   async function startSession(p: CandidateProfile) {
@@ -192,9 +229,11 @@ export function BoardInterview() {
       setBackendOk(ok);
       if (!ok) {
         throw new Error(
-          "Board API is offline. Start the FastAPI backend on :8000.",
+          "Board service unavailable. Refresh the page and try again.",
         );
       }
+      profileRef.current = p;
+      turnsRef.current = [];
       const session = await createBoardSession(p);
       setSessionId(session.sessionId);
       setProfile(p);
@@ -238,6 +277,7 @@ export function BoardInterview() {
   }
 
   async function beginAnswer() {
+    if (submitLock.current || phase !== "live") return;
     if (speaking) stopBoardSpeech();
     setSpeaking(false);
     setError(null);
@@ -248,29 +288,82 @@ export function BoardInterview() {
       window.clearTimeout(pauseCueTimer.current);
       pauseCueTimer.current = null;
     }
+    if (silenceTimer.current) {
+      window.clearTimeout(silenceTimer.current);
+      silenceTimer.current = null;
+    }
     captions.reset();
     recorder.reset();
-    await recorder.start();
-    if (!isMobileLike()) {
-      window.setTimeout(() => captions.start(), 400);
+    try {
+      await recorder.start();
+    } catch {
+      setStatus("Mic blocked — allow microphone, then wait for the panel to ask again.");
     }
-    setStatus("Listening… the panel is waiting. Press Stop & submit when done.");
+    // Need live captions for pause-detection (desktop + mobile when available)
+    window.setTimeout(() => captions.start(), 350);
+    setStatus("Listening… speak to the panel. Pause when finished — they continue.");
 
-    // Soft interrupt if the answer runs very long
     if (rambleTimer.current) window.clearTimeout(rambleTimer.current);
+    lastSpeechChangeAt.current = Date.now();
+    lastHeardTextRef.current = "";
     rambleTimer.current = window.setTimeout(() => {
-      if (!answeredStartedRef.current) return;
+      if (!answeredStartedRef.current || submitLock.current) return;
       const chair = getPanelMember("chair");
       setStatus(`${chair.name}: wrapping up…`);
       speakAsMember(
         "Thank you — that is enough for now. Let us move on.",
         chair,
         () => {
-          void submitAnswer({ fromRamble: true });
+          void submitAnswerRef.current({ fromRamble: true });
         },
       );
     }, RAMBLE_MS);
   }
+  beginAnswerRef.current = beginAnswer;
+
+  // Track real transcript growth (ignore STT restarts that don't change text)
+  useEffect(() => {
+    if (!answering) return;
+    const live = sanitizeTranscript(captions.live || "");
+    if (live && live !== lastHeardTextRef.current) {
+      if (
+        live.length >= lastHeardTextRef.current.length ||
+        !lastHeardTextRef.current.includes(live)
+      ) {
+        lastHeardTextRef.current = live;
+        lastSpeechChangeAt.current = Date.now();
+      }
+    }
+  }, [captions.live, answering]);
+
+  // Silence after last speech change → auto continue (no buttons)
+  useEffect(() => {
+    if (!answering || busy || speaking || phase !== "live") return;
+    const id = window.setInterval(() => {
+      if (submitLock.current || !answeredStartedRef.current) return;
+      const text = sanitizeTranscript(
+        lastHeardTextRef.current || captions.live || "",
+      );
+      const words = text.split(/\s+/).filter(Boolean).length;
+      if (words < MIN_WORDS_FOR_SILENCE) return;
+      const quietMs = Date.now() - lastSpeechChangeAt.current;
+      if (quietMs < SILENCE_HANDOFF_MS) return;
+      if (silenceTimer.current) return;
+      silenceTimer.current = window.setTimeout(() => {
+        silenceTimer.current = null;
+        if (!submitLock.current && answeredStartedRef.current) {
+          void submitAnswerRef.current();
+        }
+      }, 80);
+    }, 300);
+    return () => {
+      window.clearInterval(id);
+      if (silenceTimer.current) {
+        window.clearTimeout(silenceTimer.current);
+        silenceTimer.current = null;
+      }
+    };
+  }, [answering, busy, speaking, phase, captions.live]);
 
   async function submitAnswer(opts?: { fromRamble?: boolean }) {
     if (!sessionId || submitLock.current) return;
@@ -282,9 +375,10 @@ export function BoardInterview() {
     try {
       const text = await captureAnswerText();
       if (!text) {
-        setError("No answer captured. Speak again or type below.");
+        setError("No answer caught — keep speaking to the panel.");
         setBusy(false);
         submitLock.current = false;
+        window.setTimeout(() => void beginAnswerRef.current(), 400);
         return;
       }
       setAnswerDraft(text);
@@ -311,15 +405,12 @@ export function BoardInterview() {
         speakAsMember(reprimand, chair, () => {
           setSpeaker(stern);
           setSpeaking(true);
-          speakAsMember(
-            `Again. ${currentQ}`,
-            stern,
-            () => {
-              setSpeaking(false);
-              setStatus("Your turn — answer with composure.");
-              scheduleTakeYourTime(stern);
-            },
-          );
+          speakAsMember(`Again. ${currentQ}`, stern, () => {
+            setSpeaking(false);
+            setStatus("Your turn — speak with composure.");
+            scheduleTakeYourTime();
+            openMicAfterPanel();
+          });
         });
         setBusy(false);
         submitLock.current = false;
@@ -344,13 +435,12 @@ export function BoardInterview() {
         setSpeaking(true);
         speakAsMember(spoken, speaker, () => {
           setSpeaking(false);
-          setStatus("Your turn — press Answer when ready.");
-          scheduleTakeYourTime(speaker);
+          setStatus("Your turn — speak when ready.");
+          if (clarify) setCurrentQ(spoken);
+          scheduleTakeYourTime();
+          openMicAfterPanel();
         });
-        // Update displayed question to the clarified wording when clarifying
-        if (clarify) {
-          setCurrentQ(spoken);
-        }
+        if (clarify) setCurrentQ(spoken);
         setBusy(false);
         submitLock.current = false;
         return;
@@ -370,17 +460,47 @@ export function BoardInterview() {
       await askNext(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Submit failed");
+      window.setTimeout(() => void beginAnswerRef.current(), 500);
     } finally {
       setBusy(false);
       submitLock.current = false;
     }
   }
+  submitAnswerRef.current = submitAnswer;
 
-  async function endBoard() {
+  function resetInterviewState() {
     stopBoardSpeech();
     clearPaceTimers();
     captions.stop();
     recorder.reset();
+    autoListenGen.current += 1;
+    answeredStartedRef.current = false;
+    setSessionId(null);
+    setTurns([]);
+    turnsRef.current = [];
+    setCurrentQ(null);
+    setSpeaker(null);
+    setDebrief(null);
+    setAnswering(false);
+    setSpeaking(false);
+    setBusy(false);
+    setError(null);
+    setAnswerDraft("");
+    setIsFollowUp(false);
+    setCategory(null);
+    setTrace(null);
+    setStatus(null);
+    sessionViolations.current = [];
+    proctor.clearViolations();
+  }
+
+  async function endBoard() {
+    autoListenGen.current += 1;
+    stopBoardSpeech();
+    clearPaceTimers();
+    captions.stop();
+    recorder.reset();
+    setAnswering(false);
     await exitBoardFullscreen();
     setPhase("ended");
     if (sessionId) {
@@ -398,11 +518,24 @@ export function BoardInterview() {
           sessionViolations.current.length
             ? sessionViolations.current
             : proctor.violations,
+          profile,
         );
         setDebrief(report);
       } catch {
         setDebrief(null);
       }
+    }
+    // Invalidate this session id so the next interview always creates a new one
+    setSessionId(null);
+  }
+
+  async function startFreshInterview() {
+    const p = profileRef.current || profile;
+    resetInterviewState();
+    if (p) {
+      await startSession(p);
+    } else {
+      setPhase("intake");
     }
   }
 
@@ -417,14 +550,13 @@ export function BoardInterview() {
             DAF intake
           </h1>
           <p className="mt-3 max-w-2xl text-[var(--muted)]">
-            Five distinct panelists — chair, subject member, generalist, quiet
-            jumper, and a fixed skeptic. They welcome you first, then deepen;
-            they also cross-question vague answers. Optional: upload your UPSC
-            application PDF.
+            Like a real board: the panel speaks, you answer out loud, pause when
+            finished — the next member continues. No submit buttons. Optional:
+            upload your UPSC application PDF.
           </p>
           {backendOk === false && (
             <div className="mt-3">
-              <MetaChip>Board API offline — start backend on :8000</MetaChip>
+              <MetaChip>Board service unreachable — refresh and retry</MetaChip>
             </div>
           )}
         </div>
@@ -486,21 +618,31 @@ export function BoardInterview() {
           </Panel>
         )}
 
-        <button
-          type="button"
-          className="w-fit rounded-full border border-[var(--line)] px-5 py-2 text-sm"
-          onClick={() => {
-            setPhase("intake");
-            setSessionId(null);
-            setTurns([]);
-            setCurrentQ(null);
-            setSpeaker(null);
-            setDebrief(null);
-            proctor.clearViolations();
-          }}
-        >
-          New DAF session
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-full bg-[var(--accent)] px-6 py-2.5 font-display font-semibold text-[var(--void)] disabled:opacity-50"
+            onClick={() => void startFreshInterview()}
+          >
+            {profile ? "Start new interview" : "New interview"}
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-[var(--line)] px-5 py-2 text-sm"
+            onClick={() => {
+              resetInterviewState();
+              setProfile(null);
+              profileRef.current = null;
+              setPhase("intake");
+            }}
+          >
+            Edit DAF first
+          </button>
+        </div>
+        <p className="text-xs text-[var(--muted)]">
+          Each interview always opens a fresh board session.
+        </p>
       </div>
     );
   }
@@ -575,55 +717,12 @@ export function BoardInterview() {
             {captions.live && answering && (
               <p className="mt-2 text-sm text-[var(--teal)]">You: {captions.live}</p>
             )}
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            {!answering ? (
-              <button
-                type="button"
-                disabled={busy || !currentQ || speaking}
-                onClick={() => void beginAnswer()}
-                className="inline-flex h-12 items-center gap-2 rounded-full bg-[var(--accent)] px-6 font-display font-semibold text-[var(--void)] disabled:opacity-40"
-              >
-                <Mic className="h-4 w-4" /> Answer the panel
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void submitAnswer()}
-                className="inline-flex h-12 items-center gap-2 rounded-full bg-[var(--teal)] px-6 font-display font-semibold text-[var(--void)] disabled:opacity-40"
-              >
-                <Square className="h-4 w-4" /> Stop & submit
-              </button>
+            {answering && !speaking && (
+              <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--teal)]">
+                Listening — pause when finished
+              </p>
             )}
-            <button
-              type="button"
-              disabled={busy || speaking}
-              onClick={() => {
-                if (currentQ && speaker) {
-                  setSpeaking(true);
-                  setStatus(`${speaker.name} repeating…`);
-                  speakAsMember(currentQ, speaker, () => {
-                    setSpeaking(false);
-                    setStatus("Your turn.");
-                    scheduleTakeYourTime(speaker);
-                  });
-                }
-              }}
-              className="inline-flex h-12 items-center rounded-full border border-[var(--line)] px-5 text-sm disabled:opacity-40"
-            >
-              Replay voice
-            </button>
           </div>
-
-          <textarea
-            value={answerDraft}
-            onChange={(e) => setAnswerDraft(e.target.value)}
-            rows={2}
-            placeholder="Backup: type if mic/STT fails"
-            className="w-full rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]/50"
-          />
         </div>
 
         <div className="flex flex-col gap-4">
