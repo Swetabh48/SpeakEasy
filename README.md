@@ -2,7 +2,7 @@
 
 **Think quick. Speak clear.**
 
-Speakeasy is a speech and essay practice studio for competitive exams and open practice. You get generative topics, prep/speak timers, recording, transcription, strict evidence-based scoring, local progress graphs, and coaching tips — without relying on proprietary cloud models by default.
+Speakeasy is a speech and essay practice studio for competitive exams and open practice. It provides generative topics, prep/speak timers, recording, transcription, evidence-based scoring, local progress graphs, and coaching tips. Government board interview practice runs at `/board`.
 
 Live app: [speakeasy-two-peach.vercel.app](https://speakeasy-two-peach.vercel.app)
 
@@ -10,69 +10,22 @@ Repository: [github.com/Swetabh48/SpeakEasy](https://github.com/Swetabh48/SpeakE
 
 ---
 
-## What you can do
+## Features
 
 | Capability | Details |
 |---|---|
-| **Generative topics** | Combinatorial banks (subjects × regions × angles × templates) so the space stays huge; not a short static list |
-| **No repeats on device** | Topic fingerprints stored in `localStorage` so you do not get the same prompt again on that browser |
-| **Practice modes** | Impromptu, Debate, Interview, IELTS / Fluency, Group Discussion, Pitch, Essay topic, Deep research |
-| **Field filters** | Domains across governance, economy, science, ethics, health, sports, tech, international affairs, plus custom free-text fields |
-| **Optional exam scope** | Searchable exam picker (speaking / essay / interview-relevant exams only). Open practice if none selected |
-| **Timers** | Prep + speak (or write) seconds, including custom durations. Essay defaults ~1m prep / 10m write. Deep research defaults ~10m research → 1–5m speak |
-| **Speaking sessions** | Mic recording (MediaRecorder) + live browser captions backup + Whisper-in-browser transcription of the full clip |
-| **Essay sessions** | Typing or PDF upload (`pdfjs-dist`); optional “end without score” |
-| **Evidence-based scoring** | Empty / unserious attempts score near zero. No participation marks |
+| **Generative topics** | Combinatorial banks (subjects × regions × angles × templates) |
+| **No repeats on device** | Topic fingerprints in `localStorage` |
+| **Practice modes** | Impromptu, Debate, Interview, IELTS / Fluency, Group Discussion, Pitch, Essay, Deep research |
+| **Field filters** | Governance, economy, science, ethics, health, sports, tech, international affairs, custom fields |
+| **Optional exam scope** | Searchable exam picker; open practice if none selected |
+| **Timers** | Prep + speak/write, including custom durations |
+| **Speaking sessions** | MediaRecorder + live captions backup + in-browser Whisper transcription |
+| **Essay sessions** | Typing or PDF upload (`pdfjs-dist`) |
+| **Evidence-based scoring** | Empty / unserious attempts score near zero |
 | **Session review** | Dimension scores, coaching tips, transcript, optional playback |
-| **Profile & growth** | Dedicated `/profile` page: score trajectory chart, mode mix, rubric averages, strengths / weaknesses, recent evaluations |
-| **History & streaks** | Local device history and streak counters |
-| **Board interview** | Fullscreen UPSC / IES / IFS / PSU panel simulation (`/board`): DAF intake, five-member spoken panel, agentic questions via **Next.js `/api/board`** (works on the live Vercel site for any PC). Optional local FastAPI + Ollama. Optional PDF upload, client-side proctoring |
-
-Roadmap / speak readme: **[speak_readme.md](./speak_readme.md)** → [SpeakEasy_ROADMAP.md](./SpeakEasy_ROADMAP.md). Privacy one-pager: [DATA_RETENTION.md](./DATA_RETENTION.md).
-
-Full board write-up: **[BOARD_INTERVIEW.md](./BOARD_INTERVIEW.md)**. Backend detail: **[backend/README.md](./backend/README.md)**.
-
----
-
-## How a speaking session works
-
-```text
-Home filters → Spin topic → Prep timer → Speak timer
-       │                                    │
-       │                         MediaRecorder (audio blob)
-       │                         + Web Speech API (live captions backup)
-       ▼                                    ▼
-                              Review: Whisper (browser) prefers longer text
-                              vs backup captions → send transcript to /api/evaluate
-                                              ▼
-                              Strict score + tips → saved to profile / history
-```
-
-1. Pick mode, field, difficulty, timers; optionally pick an exam.
-2. Spin a topic (and “another topic” if needed).
-3. Prep, then speak. Audio is recorded; live captions may pause briefly (Chrome’s Web Speech API is flaky) — Speakeasy restarts recognition and still scores from the recording.
-4. On finish, Whisper tries to transcribe the blob in the browser; the longer of Whisper vs captions is used.
-5. `/api/evaluate` scores the attempt and returns rubric dimensions + coaching.
-
-**Browser note:** Scoring speech works best in **Chrome** or **Edge**. Cursor’s embedded browser and some WebViews fail Whisper / Speech APIs even when playback audio sounds fine.
-
----
-
-## How scoring works
-
-Priority order in `src/lib/evaluation/openSource.ts`:
-
-1. **`EVALUATOR_URL`** — your hosted OpenAI-compatible examiner (`/v1/chat/completions`)
-2. **Ollama** — local models at `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`)
-3. **Strict local grader** — always available, low RAM, evidence-based heuristics in `localScore.ts`
-
-Whisper (`@huggingface/transformers`) runs **in the browser** for STT. Server evaluation never invents high marks from silence.
-
-Copy rules:
-- With an exam selected → “Evaluating against exam standards…”
-- Open practice → “Evaluating…”
-
-Raw ONNX / stack traces are never shown in the UI.
+| **Profile & growth** | `/profile`: trajectory chart, mode mix, rubric averages, strengths / weaknesses |
+| **Board interview** | Fullscreen UPSC / IES / IFS / PSU panel at `/board`: DAF intake, five-member spoken panel, questions via Next.js `/api/board` |
 
 ---
 
@@ -81,127 +34,162 @@ Raw ONNX / stack traces are never shown in the UI.
 ```text
 PracticeSpeaking/
 ├── src/app/
-│   ├── page.tsx              # Home → PracticeApp
-│   ├── profile/page.tsx      # Growth dashboard
-│   ├── board/page.tsx        # Govt board interview room
-│   ├── api/evaluate/route.ts # Server evaluation endpoint
-│   ├── icon.tsx              # Speakeasy “S” favicon
-│   └── layout.tsx            # Fonts + metadata
+│   ├── page.tsx                 # Home → PracticeApp
+│   ├── profile/page.tsx         # Growth dashboard
+│   ├── board/page.tsx           # Govt board interview room
+│   ├── api/evaluate/route.ts    # Server evaluation
+│   ├── api/board/               # Board session / question / answer / debrief / health
+│   ├── api/transcribe/route.ts  # Optional cloud Whisper fallback
+│   ├── icon.tsx
+│   └── layout.tsx
 ├── src/components/
-│   ├── PracticeApp.tsx       # Main practice UX / session state machine
-│   ├── BoardInterview.tsx    # DAF → live panel → answers
-│   ├── DAFIntakeForm.tsx     # Saved DAF + optional PDF
-│   ├── ExamPicker.tsx        # Searchable exam list
-│   ├── ProfileView.tsx       # Charts + stats page
-│   └── Shell.tsx             # Layout shell, brand mark, chips, panels
+│   ├── PracticeApp.tsx          # Practice UX / session state machine
+│   ├── BoardInterview.tsx       # DAF → live panel → answers → debrief
+│   ├── DAFIntakeForm.tsx
+│   ├── ExamPicker.tsx
+│   ├── ProfileView.tsx
+│   └── Shell.tsx
 ├── src/lib/
-│   ├── topics/               # Banks, exams, fields, engine, fingerprints, deep research, board types
-│   ├── evaluation/           # Types, rubrics, Ollama/custom API, local grader
-│   ├── board*.ts · daf*.ts   # Board API client, TTS, intent, DAF options/storage
-│   ├── proctor/              # Face / discipline monitoring
-│   ├── whisperTranscribe.ts  # Browser Whisper with dtype fallbacks
+│   ├── topics/                  # Banks, exams, fields, engine, fingerprints
+│   ├── evaluation/              # Rubrics, remote examiner, Ollama, local grader
+│   ├── boardAgent/              # In-process board orchestration (personas, follow-ups, debrief)
+│   ├── boardApi.ts · daf*.ts    # Board client, TTS, intent, DAF storage
+│   ├── proctor/                 # Face / discipline monitoring
+│   ├── whisperTranscribe.ts
 │   ├── useAudioRecorder.ts
 │   ├── useBackupSpeechTranscript.ts
 │   ├── usePracticeTimer.ts
-│   ├── profile.ts            # localStorage evaluations + aggregates
-│   └── storage.ts            # History, streak, seen topics, settings
-├── backend/                  # FastAPI board agent + eval harness (local :8000)
-├── BOARD_INTERVIEW.md        # Board feature + session notes
-└── .env.example              # Evaluator / Ollama / board URL configuration
+│   ├── profile.ts
+│   └── storage.ts
+├── backend/                     # Optional FastAPI board agent (local :8000)
+└── .env.example
 ```
 
 ### Tech stack
 
-- **Next.js 16** (App Router) · **React 19** · **TypeScript**
-- **Tailwind CSS 4** · **Framer Motion** · **Lucide**
-- **pdfjs-dist** (essay PDF text)
-- **@huggingface/transformers** (Whisper in-browser)
+- **Next.js** (App Router) · **React** · **TypeScript**
+- **Tailwind CSS** · **Framer Motion** · **Lucide**
+- **pdfjs-dist** · **@huggingface/transformers** (Whisper in browser)
 - Optional: **Ollama** or any OpenAI-compatible examiner HTTP API
+- Optional local backend: **FastAPI** + SQLAlchemy (SQLite by default)
 
-### Storage
+### Data flow — speaking practice
 
-All progress is **on-device** (`localStorage`): seen topic fingerprints, history, streaks, evaluation archive for `/profile`. No account system in v0.1.
+```text
+Home filters → Spin topic → Prep timer → Speak timer
+       │                                    │
+       │                         MediaRecorder (audio blob)
+       │                         + Web Speech API (live captions)
+       ▼                                    ▼
+                              Review: Whisper (browser) vs captions
+                              → POST /api/evaluate
+                                              ▼
+                              Strict score + tips → localStorage profile / history
+```
+
+### Data flow — board interview
+
+```text
+DAF intake → POST /api/board/session
+       → panel greets / asks (TTS)
+       → mic answer (silence advances turn)
+       → POST /api/board/answer → next question or follow-up
+       → debrief (Board + Discipline reports)
+```
+
+Production uses same-origin `/api/board/*` (works on Vercel for any PC).  
+Optional: set `NEXT_PUBLIC_BACKEND_URL` to a local FastAPI instance for Ollama-backed generation.
+
+### Scoring priority (`src/lib/evaluation/openSource.ts`)
+
+1. `EVALUATOR_URL` — hosted OpenAI-compatible examiner  
+2. Ollama at `OLLAMA_BASE_URL`  
+3. Strict local grader in `localScore.ts` (always available)
+
+### Storage & privacy
+
+All progress is **on-device** (`localStorage`): topic fingerprints, history, streaks, evaluation archive. No account system in v0.1. Audio and transcripts stay in the browser unless you configure a remote evaluator or Whisper API. Do not commit `.env.local`.
 
 ---
 
 ## Local development
 
-Requirements: Node.js 20+ recommended.
+Requirements: Node.js 20+.
 
 ```bash
 npm install
-cp .env.example .env.local   # optional — edit evaluator / Ollama settings
+cp .env.example .env.local   # optional
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). Board: [http://localhost:3000/board](http://localhost:3000/board).
 
-For **board interview** on any PC (including Vercel): leave `NEXT_PUBLIC_BACKEND_URL` unset — the app uses `/api/board`.
+Leave `NEXT_PUBLIC_BACKEND_URL` unset so the app uses `/api/board`.
 
-Optional local FastAPI + Ollama:
+### Optional FastAPI backend
+
+```bash
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+Then in `.env.local`:
 
 ```bash
 NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8000
 ```
 
-See [speak_readme.md](./speak_readme.md) and [BOARD_INTERVIEW.md](./BOARD_INTERVIEW.md).
-
 | Script | Purpose |
 |---|---|
 | `npm run dev` | Dev server |
 | `npm run build` | Production build |
-| `npm start` | Serve the production build |
+| `npm start` | Serve production build |
 | `npm run lint` | ESLint |
+| `npm test` | Unit tests (Vitest) |
 
-### Optional AI evaluator
-
-Copy `.env.example` → `.env.local`:
+### Optional remote examiner
 
 ```bash
-# Hosted OpenAI-compatible examiner
 EVALUATOR_URL=
 EVALUATOR_MODEL=speakeasy-examiner
 EVALUATOR_API_KEY=
 
-# Or Ollama on this machine
 OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_MODEL=llama3.1:latest
 ```
 
-Without these, Speakeasy still scores with the **strict local grader**.
+Without these, Speakeasy scores with the strict local grader.
+
+Speech scoring works best in **Chrome** or **Edge**.
 
 ---
 
-## Deploy on Vercel (recommended)
+## Deploy on Vercel
 
-Vercel is the best fit for Next.js.
-
-1. Push this repo to GitHub (already: `Swetabh48/SpeakEasy`).
-2. Go to [vercel.com/new](https://vercel.com/new) → import **SpeakEasy**.
-3. Framework preset: **Next.js** (auto-detected).
-4. Add env vars if you want Ollama/remote evaluator **from production** (Ollama on your laptop will *not* be reachable from Vercel — use `EVALUATOR_URL` on a public HTTPS endpoint, or rely on the built-in local grader + browser Whisper).
+1. Import [Swetabh48/SpeakEasy](https://github.com/Swetabh48/SpeakEasy) on [vercel.com/new](https://vercel.com/new).
+2. Framework: **Next.js**.
+3. Do **not** set `NEXT_PUBLIC_BACKEND_URL` to localhost.
+4. Optionally set `EVALUATOR_URL` / `EVALUATOR_API_KEY` for a public examiner.
 5. Deploy.
-
-CLI option (after `npx vercel login`):
 
 ```bash
 npx vercel --prod
 ```
 
-### Production notes
-
-- **Whisper** downloads models in the user’s browser (first speak may take a bit).
-- **Serverless** evaluation uses the local grader unless you set `EVALUATOR_URL`.
-- Do not commit `.env.local`.
+Whisper models download in the user’s browser on first use. Serverless evaluation uses the local grader unless `EVALUATOR_URL` is set.
 
 ---
 
 ## Author
 
-**Swetabh Salampuria** ([@Swetabh48](https://github.com/Swetabh48)) — sole contributor.
+**Swetabh Salampuria** ([@Swetabh48](https://github.com/Swetabh48)) — sole author and contributor.
 
 ---
 
 ## License
 
-Private / personal project unless you add a license file later.
+Private / personal project unless a license file is added later.
