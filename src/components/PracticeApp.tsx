@@ -15,20 +15,28 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { AuthButton } from "@/components/AuthButton";
 import { ExamPicker } from "@/components/ExamPicker";
-import { BrandMark, MetaChip, Panel, Shell } from "@/components/Shell";
+import { BrandMark, MetaChip, Panel, Shell, navPillClass } from "@/components/Shell";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import type { EvaluationResult } from "@/lib/evaluation/types";
 import { extractPdfText } from "@/lib/pdfText";
-import { loadEvals, saveEvalFromResult, type StoredEval } from "@/lib/profile";
+import type { StoredEval } from "@/lib/profile";
 import {
-  bumpStreak,
-  loadHistory,
-  loadSeenIds,
-  loadSettings,
-  loadStreak,
+  bumpStreakSynced,
+  loadEvalsSynced,
+  loadHistorySynced,
+  loadSeenSynced,
+  loadSettingsSynced,
+  loadStreakSynced,
+  mergeLocalAfterLogin,
+  persistSeenSynced,
+  pushHistorySynced,
+  saveEvalFromResultSynced,
+  saveSettingsSynced,
+} from "@/lib/userData";
+import {
   markTopicSeen,
-  pushHistory,
-  saveSettings,
   type HistoryItem,
   type StreakState,
 } from "@/lib/storage";
@@ -149,21 +157,29 @@ export default function PracticeApp() {
   };
 
   useEffect(() => {
-    const settings = loadSettings();
-    setPrepSec(settings.prepSec);
-    setSpeakSec(settings.speakSec);
-    setCustomPrep(!PREP_OPTIONS.includes(settings.prepSec));
-    setCustomSpeak(!SPEAK_OPTIONS.includes(settings.speakSec));
-    setSeen(loadSeenIds());
-    setHistory(loadHistory());
-    setEvals(loadEvals());
-    setStreak(loadStreak());
-    setHydrated(true);
+    let cancelled = false;
+    void (async () => {
+      await mergeLocalAfterLogin();
+      const settings = await loadSettingsSynced();
+      if (cancelled) return;
+      setPrepSec(settings.prepSec);
+      setSpeakSec(settings.speakSec);
+      setCustomPrep(!PREP_OPTIONS.includes(settings.prepSec));
+      setCustomSpeak(!SPEAK_OPTIONS.includes(settings.speakSec));
+      setSeen(await loadSeenSynced());
+      setHistory(await loadHistorySynced());
+      setEvals(await loadEvalsSynced());
+      setStreak(await loadStreakSynced());
+      setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
-    saveSettings({ prepSec, speakSec });
+    void saveSettingsSynced({ prepSec, speakSec });
   }, [prepSec, speakSec, hydrated]);
 
   useEffect(() => {
@@ -241,7 +257,9 @@ export default function PracticeApp() {
     setStage("spinning");
     window.setTimeout(() => {
       const next = drawTopic(filters, seen);
-      setSeen(markTopicSeen(next, seen));
+      const nextSeen = markTopicSeen(next, seen);
+      setSeen(nextSeen);
+      void persistSeenSynced(nextSeen);
       setTopic(next);
       setStage("topic");
     }, 700);
@@ -256,8 +274,8 @@ export default function PracticeApp() {
 
   function pushSessionHistory(durationSec: number, hadRecording: boolean) {
     if (!topic) return;
-    setHistory(
-      pushHistory({
+    void (async () => {
+      const nextHistory = await pushHistorySynced({
         id: topic.id,
         text: topic.text,
         mode: topic.mode,
@@ -266,9 +284,10 @@ export default function PracticeApp() {
         practicedAt: Date.now(),
         durationSec,
         hadRecording,
-      }),
-    );
-    setStreak(bumpStreak());
+      });
+      setHistory(nextHistory);
+      setStreak(await bumpStreakSynced());
+    })();
   }
 
   async function runSpeechEvaluation(transcript: string, durationSec: number) {
@@ -282,7 +301,7 @@ export default function PracticeApp() {
       setTranscribeStatus(
         cleaned
           ? "Scoring your attempt…"
-          : "No speech detected — scoring as insufficient…",
+          : "No speech detected. Scoring as insufficient…",
       );
       const result = await requestEvaluation({
         kind: "speech",
@@ -298,7 +317,7 @@ export default function PracticeApp() {
       });
       setFeedback(result);
       setEvals(
-        saveEvalFromResult(
+        await saveEvalFromResultSynced(
           {
             topic: topic.text,
             mode: topic.mode,
@@ -415,7 +434,7 @@ export default function PracticeApp() {
       setFinalTranscript("");
       setAwaitingManualTranscript(true);
       setEvalError(
-        "Automatic transcript failed on this device. Type or paste what you said below — you’ll still get a full evaluation.",
+        "Automatic transcript failed on this device. Type or paste what you said below. You’ll still get a full evaluation.",
       );
       setEvaluating(false);
       setTranscribeStatus(null);
@@ -477,7 +496,7 @@ export default function PracticeApp() {
       });
       setFeedback(result);
       setEvals(
-        saveEvalFromResult(
+        await saveEvalFromResultSynced(
           {
             topic: topic.text,
             mode: "essay",
@@ -539,41 +558,40 @@ export default function PracticeApp() {
             <button
               type="button"
               onClick={goHome}
-              className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-sm transition hover:border-[var(--accent)]/50 hover:text-[var(--accent)]"
+              className={navPillClass}
             >
               <Home className="h-4 w-4" />
               <span className="hidden sm:inline">Home</span>
             </button>
           )}
-          <MetaChip>
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-            {hydrated ? `${seen.size} unique on device` : "…"}
-          </MetaChip>
-          <MetaChip>
-            streak {streak.current} · best {streak.best}
-          </MetaChip>
-          <Link
-            href="/board"
-            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-sm transition hover:border-[var(--accent)]/40 hover:text-[var(--accent)]"
-          >
-            <span className="hidden sm:inline">Board</span>
-            <span className="sm:hidden">Board</span>
+          {stage === "ready" && (
+            <>
+              <MetaChip>
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+                {hydrated ? `${seen.size} topics on device` : "…"}
+              </MetaChip>
+              <MetaChip>
+                streak {streak.current} · best {streak.best}
+              </MetaChip>
+            </>
+          )}
+          <Link href="/board" className={navPillClass}>
+            Board
           </Link>
-          <Link
-            href="/profile"
-            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-sm transition hover:border-[var(--accent)]/40 hover:text-[var(--accent)]"
-          >
+          <Link href="/profile" className={navPillClass}>
             <UserRound className="h-4 w-4" />
             <span className="hidden sm:inline">Profile</span>
           </Link>
           <button
             type="button"
             onClick={() => setHistoryOpen(true)}
-            className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--panel)] px-3 text-sm transition hover:border-[var(--accent)]/40 hover:text-[var(--accent)]"
+            className={navPillClass}
           >
             <History className="h-4 w-4" />
             <span className="hidden sm:inline">History</span>
           </button>
+          <ThemeToggle />
+          <AuthButton next="/" />
         </div>
       </header>
 
@@ -585,29 +603,49 @@ export default function PracticeApp() {
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
-              className="flex flex-1 flex-col justify-center gap-10 py-6"
+              className="flex flex-1 flex-col gap-8 py-4 sm:gap-10 sm:py-6"
             >
-              <div className="max-w-3xl">
-                <p className="mb-4 font-mono text-xs uppercase tracking-[0.28em] text-[var(--accent)]">
-                  Speech & essay lab
-                </p>
-                <h1 className="font-display text-5xl font-semibold leading-[0.95] tracking-tight sm:text-7xl">
-                  Speakeasy
-                </h1>
-                <p className="mt-5 max-w-xl text-lg leading-relaxed text-[var(--muted)] sm:text-xl">
-                  Practice speaking and essays with exam-style feedback
-                  {selectedExam ? ` for ${selectedExam.shortName}` : ""}. Scores
-                  reflect what you actually said or wrote.
-                </p>
-              </div>
+              <Panel id="practice-setup" className="scroll-mt-8 grid gap-6 p-5 sm:p-8">
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="max-w-xl">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+                      Practice studio
+                    </p>
+                    <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight sm:text-3xl">
+                      Set up your session
+                    </h2>
+                    <p className="mt-2 text-[var(--muted)]">
+                      Choose an exam, mode, field, and timers, then spin a topic.
+                      Board interviews open in a separate room.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        document
+                          .getElementById("session-mode")
+                          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }}
+                      className="inline-flex h-11 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] px-6 text-sm font-semibold text-white shadow-[var(--shadow-sm)] transition hover:bg-[var(--accent-deep)]"
+                    >
+                      Start practicing
+                    </button>
+                    <Link
+                      href="/board"
+                      className="inline-flex h-11 cursor-pointer items-center justify-center rounded-full border border-[var(--line)] bg-[var(--panel-2)] px-5 text-sm font-semibold text-[var(--ink)] shadow-[var(--shadow-sm)] transition hover:border-[var(--accent)]"
+                    >
+                      Try board interview
+                    </Link>
+                  </div>
+                </div>
 
-              <Panel className="grid gap-6 p-5 sm:p-7">
                 <ControlBlock label="Preparing for exam (optional)">
                   <ExamPicker value={examId} onChange={setExamId} />
                 </ControlBlock>
 
                 <ControlBlock label="Mode">
-                  <div className="flex flex-wrap gap-2">
+                  <div id="session-mode" className="flex scroll-mt-24 flex-wrap gap-2">
                     {MODES.map((m) => (
                       <SegButton
                         key={m}
@@ -634,12 +672,12 @@ export default function PracticeApp() {
                   </div>
                   {mode === "essay" && (
                     <p className="mt-2 text-sm text-[var(--muted)]">
-                      Essay mode is writing — no mic. Upload a PDF to score, or end without a score.
+                      Essay mode is writing, no mic. Upload a PDF to score, or end without a score.
                     </p>
                   )}
                   {mode === "deep-research" && (
                     <p className="mt-2 text-sm text-[var(--muted)]">
-                      Heavy topic · default 10 min research then 1–5 min speak. Dig into mechanisms and evidence — slogans will score poorly.
+                      Heavy topic · default 10 min research then 1–5 min speak. Dig into mechanisms and evidence. Slogans will score poorly.
                     </p>
                   )}
                 </ControlBlock>
@@ -662,7 +700,7 @@ export default function PracticeApp() {
                   <input
                     value={customField}
                     onChange={(e) => setCustomField(e.target.value)}
-                    placeholder="Or type any field — nutrition policy, maritime law…"
+                    placeholder="Or type any field: nutrition policy, maritime law…"
                     className="mt-3 w-full rounded-2xl border border-[var(--line)] bg-[var(--void)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]"
                   />
                 </ControlBlock>
@@ -772,12 +810,12 @@ export default function PracticeApp() {
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-[var(--muted)]">
-                    Pick your mode, field, and timers — then spin a topic and practice.
+                    Pick your mode, field, and timers, then spin a topic and practice.
                   </p>
                   <button
                     type="button"
                     onClick={spinTopic}
-                    className="group inline-flex h-14 cursor-pointer items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-8 font-display text-lg font-semibold text-[var(--void)] transition hover:brightness-110 active:scale-[0.98]"
+                    className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-8 text-base font-semibold text-white shadow-[var(--shadow-sm)] transition hover:bg-[var(--accent-deep)]"
                   >
                     Spin a topic
                   </button>
@@ -786,7 +824,7 @@ export default function PracticeApp() {
             </motion.section>
           )}
 
-          {inSession && (
+                    {inSession && (
             <motion.section
               key="session"
               initial={{ opacity: 0, y: 16 }}
@@ -812,13 +850,13 @@ export default function PracticeApp() {
                       animate={{ rotate: 360 }}
                       transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }}
                     />
-                    <p className="font-mono text-xs uppercase tracking-[0.24em] text-[var(--muted)]">
+                    <p className="text-xs text-[var(--muted)]">
                       Drawing unused topic…
                     </p>
                   </div>
                 ) : (
                   <>
-                    <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.24em] text-[var(--teal)]">
+                    <p className="mb-3 text-[11px] text-[var(--muted)]">
                       Your topic
                     </p>
                     <motion.h2
@@ -864,7 +902,7 @@ export default function PracticeApp() {
                               ? "Open tabs, take notes, find mechanisms & counterevidence. Then speak 1–5 minutes."
                               : "Outline thesis · pillars · close"
                             : isEssay
-                              ? "Write on paper/docs, then upload PDF to score — or end with no score."
+                              ? "Write on paper/docs, then upload PDF to score, or end with no score."
                               : "Recording now. Your speech will be transcribed after you finish, then scored."}
                         </p>
                       </div>
@@ -875,10 +913,10 @@ export default function PracticeApp() {
                         <button
                           type="button"
                           onClick={() => timer.skipToSpeak()}
-                          className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] px-4 text-sm transition hover:border-[var(--teal)]/50"
+                          className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-md border border-[var(--line)] px-4 text-sm transition hover:border-[var(--teal)]/50"
                         >
                           <SkipForward className="h-4 w-4" />
-                          {isDeep ? "Research done — speak" : "Skip prep"}
+                          {isDeep ? "Research done. Speak" : "Skip prep"}
                         </button>
                       )}
                       {stage === "speak" && (
@@ -887,7 +925,7 @@ export default function PracticeApp() {
                           <button
                             type="button"
                             onClick={() => void finishSpeechSession()}
-                            className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-full bg-[var(--teal)] px-5 text-sm font-semibold text-[var(--void)]"
+                            className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-full bg-[var(--teal)] px-5 text-sm font-semibold text-white"
                           >
                             Finish & evaluate
                           </button>
@@ -897,11 +935,11 @@ export default function PracticeApp() {
                   </div>
 
                   {stage === "speak" && (
-                    <p className="mt-4 max-h-28 overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-3 text-sm text-[var(--muted)]">
+                    <p className="mt-4 max-h-28 overflow-y-auto rounded-md border border-[var(--line)] bg-[var(--panel-2)] p-3 text-sm text-[var(--muted)]">
                       {getSttStrategy() === "record" ? (
                         <>
                           <span className="text-[var(--teal)]">Recording · </span>
-                          Keep speaking — after you finish we’ll transcribe once
+                          Keep speaking. After you finish we’ll transcribe once
                           (Moonshine/Whisper). First mobile run may take a minute
                           while the model downloads.
                         </>
@@ -918,7 +956,7 @@ export default function PracticeApp() {
 
                   {stage === "write" && (
                     <div className="mt-5 space-y-3">
-                      <label className="flex cursor-pointer flex-col items-start gap-2 rounded-2xl border border-dashed border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 transition hover:border-[var(--accent)]/45">
+                      <label className="flex cursor-pointer flex-col items-start gap-2 rounded-md border border-dashed border-[var(--line)] bg-[var(--panel-2)] px-4 py-5 transition hover:border-[var(--muted)]">
                         <span className="inline-flex items-center gap-2 text-sm">
                           <FileUp className="h-4 w-4 text-[var(--accent)]" />
                           Upload essay PDF {pdfName ? `· ${pdfName}` : ""}
@@ -940,14 +978,14 @@ export default function PracticeApp() {
                           type="button"
                           onClick={() => void scoreEssayPdf()}
                           disabled={!essayText.trim() || evaluating}
-                          className="inline-flex h-11 cursor-pointer items-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--void)] disabled:cursor-not-allowed disabled:opacity-40"
+                          className="inline-flex h-11 cursor-pointer items-center rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           Score my PDF
                         </button>
                         <button
                           type="button"
                           onClick={endEssayWithoutScore}
-                          className="inline-flex h-11 cursor-pointer items-center rounded-full border border-[var(--line)] px-5 text-sm transition hover:border-[var(--accent)]/40"
+                          className="inline-flex h-11 cursor-pointer items-center rounded-md border border-[var(--line)] px-5 text-sm transition hover:border-[var(--muted)]"
                         >
                           End without score
                         </button>
@@ -963,17 +1001,17 @@ export default function PracticeApp() {
               {stage === "topic" && (
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={goHome} className="inline-flex h-12 cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] px-5 text-sm">
+                    <button type="button" onClick={goHome} className="inline-flex h-12 cursor-pointer items-center gap-2 rounded-md border border-[var(--line)] px-5 text-sm">
                       <Home className="h-4 w-4" /> Home
                     </button>
-                    <button type="button" onClick={spinTopic} className="inline-flex h-12 cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] px-5 text-sm">
+                    <button type="button" onClick={spinTopic} className="inline-flex h-12 cursor-pointer items-center gap-2 rounded-md border border-[var(--line)] px-5 text-sm">
                       <RotateCcw className="h-4 w-4" /> Spin again
                     </button>
                   </div>
                   <button
                     type="button"
                     onClick={beginPractice}
-                    className="inline-flex h-12 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] px-8 font-display font-semibold text-[var(--void)]"
+                    className="inline-flex h-12 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] px-8 font-display font-semibold text-white"
                   >
                     Start {isDeep ? `${prepSec / 60}m research` : `${prepSec}s prep`}
                   </button>
@@ -984,7 +1022,7 @@ export default function PracticeApp() {
                 <button
                   type="button"
                   onClick={goHome}
-                  className="self-start cursor-pointer text-sm text-[var(--muted)] underline-offset-4 hover:text-[var(--accent)] hover:underline"
+                  className="self-start cursor-pointer text-sm text-[var(--muted)] underline-offset-4 hover:text-[var(--ink)] hover:underline"
                 >
                   ← Back to home & filters
                 </button>
@@ -1000,7 +1038,7 @@ export default function PracticeApp() {
               className="flex flex-1 flex-col gap-6 py-4"
             >
               <div>
-                <p className="font-mono text-xs uppercase tracking-[0.24em] text-[var(--accent)]">
+                <p className="text-xs text-[var(--muted)]">
                   Session review
                 </p>
                 <h2 className="mt-2 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -1020,7 +1058,7 @@ export default function PracticeApp() {
                 {!evaluating && !feedback && awaitingManualTranscript && (
                   <p className="mt-3 max-w-2xl text-[var(--muted)]">
                     Automatic speech-to-text couldn’t finish on this device. Type
-                    or paste what you said — scoring uses the same evaluator as
+                    or paste what you said. Scoring uses the same evaluator as
                     desktop.
                   </p>
                 )}
@@ -1040,12 +1078,12 @@ export default function PracticeApp() {
 
               {!evaluating && awaitingManualTranscript && (
                 <Panel className="p-5 sm:p-6">
-                  <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+                  <p className="mb-2 text-[11px] text-[var(--muted)]">
                     Type what you said
                   </p>
                   {recorder.audioUrl && (
                     <div className="mb-4">
-                      <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+                      <p className="mb-2 text-[11px] text-[var(--muted)]">
                         Playback (optional)
                       </p>
                       <audio controls src={recorder.audioUrl} className="w-full" />
@@ -1056,13 +1094,13 @@ export default function PracticeApp() {
                     onChange={(e) => setManualDraft(e.target.value)}
                     rows={6}
                     placeholder="Replay your recording if available, then type the words you spoke…"
-                    className="w-full resize-y rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]/50"
+                    className="w-full resize-y rounded-md border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-sm text-[var(--ink)] outline-none focus:border-[var(--accent)]/50"
                   />
                   <button
                     type="button"
                     onClick={() => void scoreManualTranscript()}
                     disabled={!manualDraft.trim()}
-                    className="mt-4 inline-flex h-12 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] px-8 font-display font-semibold text-[var(--void)] disabled:opacity-40"
+                    className="mt-4 inline-flex h-12 cursor-pointer items-center justify-center rounded-full bg-[var(--accent)] px-8 font-display font-semibold text-white disabled:opacity-40"
                   >
                     Score my transcript
                   </button>
@@ -1071,7 +1109,7 @@ export default function PracticeApp() {
 
               {!evaluating && finalTranscript && !awaitingManualTranscript && (
                 <Panel className="p-4">
-                  <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+                  <p className="mb-2 text-[11px] text-[var(--muted)]">
                     Your transcript
                   </p>
                   <p className="max-h-36 overflow-y-auto text-sm text-[var(--muted)]">
@@ -1098,7 +1136,7 @@ export default function PracticeApp() {
                       <Panel key={s.label} className="p-5">
                         <div className="flex items-end justify-between">
                           <span className="font-display text-lg">{s.label}</span>
-                          <span className="font-mono text-2xl text-[var(--accent)]">
+                          <span className="font-mono text-2xl text-[var(--ink)]">
                             {s.value}
                           </span>
                         </div>
@@ -1106,7 +1144,7 @@ export default function PracticeApp() {
                           <motion.div
                             initial={{ width: 0 }}
                             animate={{ width: `${s.value}%` }}
-                            className="h-full rounded-full bg-gradient-to-r from-[var(--accent)] to-[var(--teal)]"
+                            className="h-full rounded-full bg-[var(--accent)]"
                           />
                         </div>
                         <p className="mt-3 text-sm text-[var(--muted)]">{s.note}</p>
@@ -1125,17 +1163,17 @@ export default function PracticeApp() {
                     </ul>
                     {feedback.transcriptUsed && (
                       <div className="mt-5">
-                        <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+                        <p className="mb-2 text-[11px] text-[var(--muted)]">
                           What was scored
                         </p>
-                        <p className="max-h-40 overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] p-3 text-sm text-[var(--muted)]">
+                        <p className="max-h-40 overflow-y-auto rounded-md border border-[var(--line)] bg-[var(--panel-2)] p-3 text-sm text-[var(--muted)]">
                           {feedback.transcriptUsed || "(empty)"}
                         </p>
                       </div>
                     )}
                     {!isEssay && recorder.audioUrl && (
                       <div className="mt-5">
-                        <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+                        <p className="mb-2 text-[11px] text-[var(--muted)]">
                           Optional playback
                         </p>
                         <audio controls src={recorder.audioUrl} className="w-full" />
@@ -1149,14 +1187,14 @@ export default function PracticeApp() {
                 <button
                   type="button"
                   onClick={goHome}
-                  className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-full border border-[var(--line)] px-5 text-sm"
+                  className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-md border border-[var(--line)] px-5 text-sm"
                 >
                   <Home className="h-4 w-4" /> Back to home
                 </button>
                 <button
                   type="button"
                   onClick={spinTopic}
-                  className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-8 font-display font-semibold text-[var(--void)]"
+                  className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-8 font-display font-semibold text-white"
                 >
                   Another topic
                 </button>
@@ -1165,6 +1203,18 @@ export default function PracticeApp() {
           )}
         </AnimatePresence>
       </main>
+
+      <footer className="mx-auto mt-auto flex w-full max-w-6xl items-center justify-between gap-3 px-5 py-8 sm:px-8">
+        <p className="text-sm text-[var(--muted)]">
+          Speakeasy · practice that scores honestly
+        </p>
+        <Link
+          href="/engineering"
+          className="text-sm font-medium text-[var(--accent-deep)] transition hover:text-[var(--accent)]"
+        >
+          Engineering
+        </Link>
+      </footer>
 
       <AnimatePresence>
         {historyOpen && (
@@ -1190,7 +1240,7 @@ function HistoryDrawer({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex justify-end bg-black/50"
       onClick={onClose}
     >
       <motion.div
@@ -1202,7 +1252,7 @@ function HistoryDrawer({
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-display text-2xl">Practice history</h3>
-          <button type="button" onClick={onClose} className="cursor-pointer rounded-full border border-[var(--line)] p-2">
+          <button type="button" onClick={onClose} className="cursor-pointer rounded-md border border-[var(--line)] p-2">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1211,7 +1261,7 @@ function HistoryDrawer({
             <p className="text-sm text-[var(--muted)]">No sessions yet.</p>
           )}
           {history.map((h) => (
-            <div key={`${h.id}-${h.practicedAt}`} className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-4">
+            <div key={`${h.id}-${h.practicedAt}`} className="rounded-md border border-[var(--line)] bg-[var(--panel)] p-4">
               <div className="mb-2 flex flex-wrap gap-2">
                 <MetaChip>{h.mode}</MetaChip>
                 <MetaChip>{h.durationSec}s</MetaChip>
@@ -1234,7 +1284,7 @@ function ControlBlock({
 }) {
   return (
     <div>
-      <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.22em] text-[var(--muted)]">
+      <div className="mb-2 text-[11px] text-[var(--muted)]">
         {label}
       </div>
       {children}
@@ -1255,11 +1305,11 @@ function SegButton({
     <button
       type="button"
       onClick={onClick}
-      className={`cursor-pointer rounded-full border px-3.5 py-2 text-sm transition active:scale-[0.98] ${
+      className={
         active
-          ? "border-[var(--accent)] bg-[var(--accent)]/20 text-[var(--ink)]"
-          : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--accent)]/45 hover:text-[var(--ink)]"
-      }`}
+          ? "cursor-pointer rounded-full border border-[var(--accent)] bg-[var(--accent)]/12 px-3.5 py-2 text-sm font-medium text-[var(--accent-deep)] transition"
+          : "cursor-pointer rounded-full border border-[var(--line)] bg-[var(--panel)] px-3.5 py-2 text-sm text-[var(--muted)] transition hover:border-[var(--accent)]/40 hover:text-[var(--ink)]"
+      }
     >
       {children}
     </button>
@@ -1290,7 +1340,7 @@ function CustomSeconds({
           const n = Number(e.target.value);
           if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, Math.round(n))));
         }}
-        className="w-28 rounded-xl border border-[var(--line)] bg-[var(--void)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+        className="w-28 rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
       />
       <span className="text-sm text-[var(--muted)]">{suffix}</span>
     </div>
@@ -1340,27 +1390,27 @@ function StatusMic({
 }) {
   if (state === "denied") {
     return (
-      <span className="inline-flex h-11 items-center gap-2 rounded-full border border-red-400/40 px-4 text-sm text-red-300">
+      <span className="inline-flex h-11 items-center gap-2 rounded-md border border-red-400/40 px-4 text-sm text-red-300">
         <MicOff className="h-4 w-4" /> Mic blocked
       </span>
     );
   }
   if (state === "unsupported") {
     return (
-      <span className="inline-flex h-11 items-center gap-2 rounded-full border border-[var(--line)] px-4 text-sm text-[var(--muted)]">
+      <span className="inline-flex h-11 items-center gap-2 rounded-md border border-[var(--line)] px-4 text-sm text-[var(--muted)]">
         <MicOff className="h-4 w-4" /> Mic unavailable
       </span>
     );
   }
   if (state === "recording") {
     return (
-      <span className="inline-flex h-11 items-center gap-2 rounded-full border border-[var(--teal)]/40 bg-[var(--teal)]/10 px-4 text-sm text-[var(--teal)]">
+      <span className="inline-flex h-11 items-center gap-2 rounded-md border border-[var(--teal)]/40 bg-[var(--teal)]/10 px-4 text-sm text-[var(--teal)]">
         <Mic className="h-4 w-4" /> Recording
       </span>
     );
   }
   return (
-    <span className="inline-flex h-11 items-center gap-2 rounded-full border border-[var(--line)] px-4 text-sm text-[var(--muted)]">
+    <span className="inline-flex h-11 items-center gap-2 rounded-md border border-[var(--line)] px-4 text-sm text-[var(--muted)]">
       <Mic className="h-4 w-4" /> Mic ready
     </span>
   );

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 380" role="img">
+  <rect width="1100" height="380" rx="12" fill="#0a0a0a"/>
+  <text x="40" y="40" fill="#f0c14b" font-family="system-ui,sans-serif" font-size="18" font-weight="700">Board Interview Flow</text>
+  <defs>
+    <marker id="ar2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#f0c14b"/></marker>
+  </defs>
+
+  <rect x="30" y="80" width="130" height="70" rx="10" fill="#bae6fd" stroke="#0284c7" stroke-width="2"/>
+  <text x="95" y="110" text-anchor="middle" fill="#0c4a6e" font-size="14" font-weight="700" font-family="system-ui,sans-serif">DAF intake</text>
+  <text x="95" y="130" text-anchor="middle" fill="#0369a1" font-size="11" font-family="ui-monospace,monospace">profile</text>
+
+  <path d="M160 115 H185" stroke="#f0c14b" stroke-width="2" marker-end="url(#ar2)"/>
+
+  <rect x="185" y="80" width="150" height="70" rx="10" fill="#fdba74" stroke="#ea580c" stroke-width="2"/>
+  <text x="260" y="110" text-anchor="middle" fill="#7c2d12" font-size="13" font-weight="700" font-family="system-ui,sans-serif">POST /session</text>
+  <text x="260" y="130" text-anchor="middle" fill="#9a3412" font-size="11" font-family="ui-monospace,monospace">sessionId</text>
+
+  <path d="M335 115 H360" stroke="#f0c14b" stroke-width="2" marker-end="url(#ar2)"/>
+
+  <rect x="360" y="80" width="140" height="70" rx="10" fill="#c4b5fd" stroke="#7c3aed" stroke-width="2"/>
+  <text x="430" y="110" text-anchor="middle" fill="#4c1d95" font-size="14" font-weight="700" font-family="system-ui,sans-serif">Panel TTS</text>
+  <text x="430" y="130" text-anchor="middle" fill="#5b21b6" font-size="11" font-family="ui-monospace,monospace">5 personas</text>
+
+  <path d="M500 115 H525" stroke="#f0c14b" stroke-width="2" marker-end="url(#ar2)"/>
+
+  <rect x="525" y="80" width="150" height="70" rx="10" fill="#bae6fd" stroke="#0284c7" stroke-width="2"/>
+  <text x="600" y="110" text-anchor="middle" fill="#0c4a6e" font-size="14" font-weight="700" font-family="system-ui,sans-serif">Mic answer</text>
+  <text x="600" y="130" text-anchor="middle" fill="#0369a1" font-size="11" font-family="ui-monospace,monospace">silence 1.8s</text>
+
+  <path d="M675 115 H700" stroke="#f0c14b" stroke-width="2" marker-end="url(#ar2)"/>
+
+  <rect x="700" y="80" width="150" height="70" rx="10" fill="#fdba74" stroke="#ea580c" stroke-width="2"/>
+  <text x="775" y="110" text-anchor="middle" fill="#7c2d12" font-size="13" font-weight="700" font-family="system-ui,sans-serif">POST /answer</text>
+  <text x="775" y="130" text-anchor="middle" fill="#9a3412" font-size="11" font-family="ui-monospace,monospace">+ violations?</text>
+
+  <path d="M850 115 H875" stroke="#f0c14b" stroke-width="2" marker-end="url(#ar2)"/>
+
+  <rect x="875" y="80" width="190" height="70" rx="10" fill="#fdba74" stroke="#ea580c" stroke-width="2"/>
+  <text x="970" y="110" text-anchor="middle" fill="#7c2d12" font-size="13" font-weight="700" font-family="system-ui,sans-serif">POST /question</text>
+  <text x="970" y="130" text-anchor="middle" fill="#9a3412" font-size="11" font-family="ui-monospace,monospace">or follow-up</text>
+
+  <!-- loop back -->
+  <path d="M970 150 V200 H430 V150" stroke="#f0c14b" stroke-width="2" fill="none" stroke-dasharray="5 4" marker-end="url(#ar2)"/>
+  <text x="680" y="190" fill="#fbbf24" font-size="12" font-family="ui-monospace,monospace">live loop until end</text>
+
+  <rect x="30" y="240" width="200" height="70" rx="10" fill="#86efac" stroke="#16a34a" stroke-width="2"/>
+  <text x="130" y="270" text-anchor="middle" fill="#14532d" font-size="14" font-weight="700" font-family="system-ui,sans-serif">End interview</text>
+  <text x="130" y="290" text-anchor="middle" fill="#166534" font-size="11" font-family="ui-monospace,monospace">user action</text>
+
+  <path d="M230 275 H270" stroke="#f0c14b" stroke-width="2" marker-end="url(#ar2)"/>
+
+  <rect x="270" y="240" width="200" height="70" rx="10" fill="#fdba74" stroke="#ea580c" stroke-width="2"/>
+  <text x="370" y="270" text-anchor="middle" fill="#7c2d12" font-size="14" font-weight="700" font-family="system-ui,sans-serif">POST /debrief</text>
+  <text x="370" y="290" text-anchor="middle" fill="#9a3412" font-size="11" font-family="ui-monospace,monospace">reports</text>
+
+  <path d="M470 275 H510" stroke="#f0c14b" stroke-width="2" marker-end="url(#ar2)"/>
+
+  <rect x="510" y="240" width="250" height="70" rx="10" fill="#c4b5fd" stroke="#7c3aed" stroke-width="2"/>
+  <text x="635" y="270" text-anchor="middle" fill="#4c1d95" font-size="14" font-weight="700" font-family="system-ui,sans-serif">Board + Discipline</text>
+  <text x="635" y="290" text-anchor="middle" fill="#5b21b6" font-size="11" font-family="ui-monospace,monospace">heuristic debrief</text>
+
+  <text x="40" y="360" fill="#64748b" font-size="12" font-family="ui-monospace,monospace">Default production path: Next.js /api/board (same-origin)</text>
+</svg>

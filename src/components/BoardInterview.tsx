@@ -543,7 +543,7 @@ export function BoardInterview() {
     return (
       <div className="grid gap-6">
         <div>
-          <p className="font-mono text-xs uppercase tracking-[0.24em] text-[var(--accent)]">
+          <p className="text-xs text-[var(--muted)]">
             Board interview
           </p>
           <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight sm:text-5xl">
@@ -579,7 +579,7 @@ export function BoardInterview() {
         {debrief ? (
           <div className="grid gap-4 lg:grid-cols-2">
             <Panel className="p-5">
-              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--accent)]">
+              <p className="text-[11px] text-[var(--muted)]">
                 {debrief.boardReport.title}
               </p>
               <p className="mt-2 text-sm text-[var(--muted)]">
@@ -598,7 +598,7 @@ export function BoardInterview() {
               <Section title="Transcript notes" items={debrief.boardReport.notes} />
             </Panel>
             <Panel className="p-5">
-              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--accent)]">
+              <p className="text-[11px] text-[var(--muted)]">
                 {debrief.disciplineReport.title}
               </p>
               <p className="mt-2 text-sm text-[var(--muted)]">
@@ -622,14 +622,14 @@ export function BoardInterview() {
           <button
             type="button"
             disabled={busy}
-            className="rounded-full bg-[var(--accent)] px-6 py-2.5 font-display font-semibold text-[var(--void)] disabled:opacity-50"
+            className="rounded-md bg-[var(--accent)] px-6 py-2.5 font-display font-semibold text-[var(--void)] disabled:opacity-50"
             onClick={() => void startFreshInterview()}
           >
             {profile ? "Start new interview" : "New interview"}
           </button>
           <button
             type="button"
-            className="rounded-full border border-[var(--line)] px-5 py-2 text-sm"
+            className="rounded-md border border-[var(--line)] px-5 py-2 text-sm"
             onClick={() => {
               resetInterviewState();
               setProfile(null);
@@ -651,7 +651,7 @@ export function BoardInterview() {
     <div
       ref={roomRef}
       data-board-live="1"
-      className="fixed inset-0 z-40 flex flex-col overflow-y-auto bg-[#07090d] text-[var(--ink)]"
+      className="fixed inset-0 z-40 flex flex-col overflow-y-auto bg-[var(--void)] text-[var(--ink)]"
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(232,168,73,0.12),transparent_55%)]" />
       <header className="relative z-10 flex items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3 sm:px-6">
@@ -664,7 +664,7 @@ export function BoardInterview() {
           {!isFs && (
             <button
               type="button"
-              className="pointer-events-auto rounded-full border border-red-400/40 px-3 py-1 text-xs text-red-300"
+              className="pointer-events-auto rounded-md border border-red-400/40 px-3 py-1 text-xs text-red-300"
               onClick={() =>
                 void requestBoardFullscreen(
                   roomRef.current || document.documentElement,
@@ -678,7 +678,7 @@ export function BoardInterview() {
         <button
           type="button"
           onClick={() => void endBoard()}
-          className="rounded-full border border-[var(--line)] px-4 py-1.5 text-sm text-[var(--muted)]"
+          className="rounded-md border border-[var(--line)] px-4 py-1.5 text-sm text-[var(--muted)]"
         >
           End
         </button>
@@ -691,8 +691,8 @@ export function BoardInterview() {
             listening={answering}
           />
 
-          <div className="rounded-[24px] border border-[var(--line)] bg-[var(--panel)]/80 p-5 backdrop-blur">
-            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+          <div className="rounded-md border border-[var(--line)] bg-[var(--panel)] p-5">
+            <p className="text-[11px] text-[var(--muted)]">
               {speaker
                 ? `${speaker.name} · ${speaker.role}${isFollowUp ? " · follow-up" : ""}`
                 : "Awaiting panel"}
@@ -718,7 +718,7 @@ export function BoardInterview() {
               <p className="mt-2 text-sm text-[var(--teal)]">You: {captions.live}</p>
             )}
             {answering && !speaking && (
-              <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--teal)]">
+              <p className="mt-3 text-[11px] text-[var(--muted)]">
                 Listening — pause when finished
               </p>
             )}
@@ -732,8 +732,8 @@ export function BoardInterview() {
             violations={proctor.violations}
             compact
           />
-          <div className="rounded-[22px] border border-[var(--line)] bg-[var(--panel)]/70 p-4">
-            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+          <div className="rounded-md border border-[var(--line)] bg-[var(--panel)] p-4">
+            <p className="text-[11px] text-[var(--muted)]">
               Session log
             </p>
             <div className="mt-2 max-h-48 space-y-2 overflow-y-auto text-sm">
@@ -751,8 +751,8 @@ export function BoardInterview() {
               ))}
             </div>
           </div>
-          <div className="rounded-[22px] border border-[var(--line)] bg-[var(--panel)]/50 p-3">
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
+          <div className="rounded-md border border-[var(--line)] bg-[var(--panel)]/50 p-3">
+            <p className="text-[11px] text-[var(--muted)]">
               Panel roles
             </p>
             <ul className="mt-2 space-y-1.5 text-xs text-[var(--muted)]">
@@ -772,7 +772,7 @@ export function BoardInterview() {
 function Section({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="mt-4">
-      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
+      <p className="text-[11px] text-[var(--muted)]">
         {title}
       </p>
       <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-[var(--ink)]">

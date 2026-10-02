@@ -48,7 +48,7 @@ export function ExamPicker({ value, onChange }: Props) {
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:border-red-400/40 hover:text-red-300"
+            className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--muted)] transition hover:border-red-600/50 hover:text-red-700"
           >
             <X className="h-3.5 w-3.5" /> Clear exam
           </button>
@@ -85,14 +85,14 @@ export function ExamPicker({ value, onChange }: Props) {
           />
         ))}
         {pageItems.length === 0 && (
-          <p className="rounded-2xl border border-dashed border-[var(--line)] px-4 py-6 text-center text-sm text-[var(--muted)]">
+          <p className="rounded-md border border-dashed border-[var(--line)] px-4 py-6 text-center text-sm text-[var(--muted)]">
             No exams match “{debounced}”.
           </p>
         )}
       </div>
 
       <div className="flex items-center justify-between gap-3 pt-1">
-        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--muted)]">
+        <p className="text-[11px] text-[var(--muted)]">
           {filtered.length} matches · page {safePage + 1}/{pageCount}
         </p>
         <div className="flex gap-2">
@@ -100,7 +100,7 @@ export function ExamPicker({ value, onChange }: Props) {
             type="button"
             disabled={safePage <= 0}
             onClick={() => setPage((p) => Math.max(0, p - 1))}
-            className="inline-flex h-9 cursor-pointer items-center gap-1 rounded-full border border-[var(--line)] px-3 text-sm transition hover:border-[var(--accent)]/40 disabled:cursor-not-allowed disabled:opacity-35"
+            className="inline-flex h-9 cursor-pointer items-center gap-1 rounded-md border border-[var(--line)] px-3 text-sm transition hover:border-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-35"
           >
             <ChevronLeft className="h-4 w-4" /> Prev
           </button>
@@ -108,7 +108,7 @@ export function ExamPicker({ value, onChange }: Props) {
             type="button"
             disabled={safePage >= pageCount - 1}
             onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-            className="inline-flex h-9 cursor-pointer items-center gap-1 rounded-full border border-[var(--line)] px-3 text-sm transition hover:border-[var(--accent)]/40 disabled:cursor-not-allowed disabled:opacity-35"
+            className="inline-flex h-9 cursor-pointer items-center gap-1 rounded-md border border-[var(--line)] px-3 text-sm transition hover:border-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-35"
           >
             Next <ChevronRight className="h-4 w-4" />
           </button>
@@ -131,11 +131,11 @@ function ExamRow({
     <button
       type="button"
       onClick={onSelect}
-      className={`flex w-full cursor-pointer items-start justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+      className={
         active
-          ? "border-[var(--accent)] bg-[var(--accent)]/12 shadow-[0_0_0_1px_rgba(232,168,73,0.25)]"
-          : "border-[var(--line)] bg-[var(--panel-2)]/40 hover:border-[var(--accent)]/45 hover:bg-[var(--panel-2)]"
-      }`}
+          ? "flex w-full cursor-pointer items-start justify-between gap-3 rounded-2xl border border-[var(--accent)] bg-[var(--accent)]/10 px-4 py-3 text-left transition"
+          : "flex w-full cursor-pointer items-start justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--panel)] px-4 py-3 text-left transition hover:border-[var(--accent)]/40 hover:bg-[var(--panel-2)]"
+      }
     >
       <div>
         <div className="font-display text-base font-medium">{exam.shortName}</div>
@@ -146,7 +146,7 @@ function ExamRow({
           <MetaChip>{exam.kind}</MetaChip>
         </div>
       </div>
-      <div className="shrink-0 text-right font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--accent)]">
+      <div className="shrink-0 text-right text-[11px] text-[var(--muted)]">
         {formatSpace(estimateExamTopicSpace(exam, "speak"))}
       </div>
     </button>

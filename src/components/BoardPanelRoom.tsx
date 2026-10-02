@@ -11,8 +11,8 @@ export function BoardPanelRoom({
   listening?: boolean;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-[28px] border border-[var(--line)] bg-[radial-gradient(ellipse_at_50%_0%,#1a2230_0%,#0b0e14_70%)] p-4 sm:p-6">
-      <p className="mb-4 text-center font-mono text-[10px] uppercase tracking-[0.28em] text-[var(--muted)]">
+    <div className="relative overflow-hidden rounded-md border border-[var(--line)] bg-[var(--panel)] p-4 sm:p-6">
+      <p className="mb-4 text-center text-[11px] text-[var(--muted)]">
         Interview board · panel in session
       </p>
       <div className="flex flex-wrap items-end justify-center gap-3 sm:gap-5">
@@ -26,7 +26,6 @@ export function BoardPanelRoom({
           />
         ))}
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/40 to-transparent" />
     </div>
   );
 }
@@ -44,42 +43,34 @@ function Figurine({
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.45 }}
+      transition={{ delay, duration: 0.35 }}
       className="flex w-[72px] flex-col items-center sm:w-[96px]"
     >
       <motion.div
-        animate={
-          speaking
-            ? { scale: [1, 1.06, 1], y: [0, -4, 0] }
-            : listening
-              ? { scale: 1 }
-              : { scale: 1 }
-        }
+        animate={speaking ? { y: [0, -2, 0] } : { y: 0 }}
         transition={
           speaking
-            ? { repeat: Infinity, duration: 1.2, ease: "easeInOut" }
-            : { duration: 0.3 }
+            ? { repeat: Infinity, duration: 1.4, ease: "easeInOut" }
+            : { duration: 0.25 }
         }
         className="relative"
       >
-        {/* torso */}
         <div
-          className="mx-auto mt-10 h-16 w-14 rounded-t-[28px] sm:h-20 sm:w-[4.25rem]"
+          className="mx-auto mt-10 h-16 w-14 rounded-t-md sm:h-20 sm:w-[4.25rem]"
           style={{
-            background: `linear-gradient(160deg, ${member.color}55, #12161d 70%)`,
-            boxShadow: speaking
-              ? `0 0 0 2px ${member.color}, 0 0 24px ${member.color}66`
-              : `0 0 0 1px rgba(243,239,230,0.12)`,
+            background: speaking ? `${member.color}44` : "var(--panel-2)",
+            border: speaking
+              ? `1px solid ${member.color}`
+              : "1px solid var(--line)",
           }}
         />
-        {/* head */}
         <div
-          className="absolute left-1/2 top-0 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full border sm:h-14 sm:w-14"
+          className="absolute left-1/2 top-0 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full border border-[var(--line)] sm:h-14 sm:w-14"
           style={{
-            background: `radial-gradient(circle at 35% 30%, #f5e6d3, #c4a484 55%, #8b6b4a)`,
-            borderColor: speaking ? member.color : "rgba(243,239,230,0.15)",
+            background: "#cbb79a",
+            outline: speaking ? `2px solid ${member.color}` : undefined,
           }}
         >
           <span className="font-display text-xs font-bold text-[#2a1f14] sm:text-sm">
@@ -87,18 +78,16 @@ function Figurine({
           </span>
         </div>
         {speaking && (
-          <motion.span
+          <span
             className="absolute -right-1 top-2 h-2 w-2 rounded-full"
             style={{ background: member.color }}
-            animate={{ opacity: [1, 0.3, 1] }}
-            transition={{ repeat: Infinity, duration: 0.8 }}
           />
         )}
       </motion.div>
-      <p className="mt-2 text-center font-display text-xs sm:text-sm">{member.name}</p>
-      <p className="text-center font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--muted)]">
-        {member.role}
+      <p className="mt-2 text-center font-display text-xs sm:text-sm">
+        {member.name}
       </p>
+      <p className="text-center text-[11px] text-[var(--muted)]">{member.role}</p>
     </motion.div>
   );
 }

@@ -10,7 +10,7 @@ import {
   INSTITUTION_OPTIONS,
   OPTIONAL_SUBJECT_OPTIONS,
 } from "@/lib/dafOptions";
-import { loadSavedDaf, saveDaf } from "@/lib/dafStorage";
+import { loadDafSynced, saveDafSynced } from "@/lib/userData";
 import { extractPdfText } from "@/lib/pdfText";
 import {
   SERVICE_TRACKS,
@@ -46,8 +46,13 @@ export function DAFIntakeForm({
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const saved = loadSavedDaf();
-    if (saved) {
+    let cancelled = false;
+    void (async () => {
+      const saved = await loadDafSynced();
+      if (cancelled || !saved) {
+        if (!cancelled) setHydrated(true);
+        return;
+      }
       setTrack(saved.track);
       setName(saved.name);
       setHomeState(saved.homeState);
@@ -83,8 +88,11 @@ export function DAFIntakeForm({
       setHobbies((saved.hobbies || []).join(", "));
       setPrefs((saved.servicePreferences || []).join(", "));
       setDafNotes(saved.dafUploadNotes || "");
-    }
-    setHydrated(true);
+      setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function onPdf(file: File | null) {
@@ -165,7 +173,7 @@ export function DAFIntakeForm({
       dafUploadNotes: dafNotes.trim() || undefined,
     };
 
-    saveDaf(profile);
+    void saveDafSynced(profile);
     try {
       await onSubmit(profile);
     } catch (err) {
@@ -183,7 +191,7 @@ export function DAFIntakeForm({
     <Panel className="p-5 sm:p-7">
       <form onSubmit={handleSubmit} className="grid gap-4">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
+          <p className="text-[11px] text-[var(--muted)]">
             Service track <Req />
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -192,11 +200,11 @@ export function DAFIntakeForm({
                 key={t.id}
                 type="button"
                 onClick={() => setTrack(t.id)}
-                className={`rounded-full border px-3 py-1.5 text-sm ${
+                className={
                   track === t.id
-                    ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
-                    : "border-[var(--line)] text-[var(--muted)]"
-                }`}
+                    ? "rounded-md border border-[var(--accent)] bg-[var(--accent)]/10 px-3 py-1.5 text-sm text-[var(--ink)]"
+                    : "rounded-md border border-[var(--line)] px-3 py-1.5 text-sm text-[var(--muted)]"
+                }
               >
                 {t.label}
               </button>
@@ -204,15 +212,15 @@ export function DAFIntakeForm({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-dashed border-[var(--line)] bg-[var(--panel-2)]/60 p-4">
-          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
+        <div className="rounded-md border border-dashed border-[var(--line)] bg-[var(--panel-2)]/60 p-4">
+          <p className="text-[11px] text-[var(--muted)]">
             Upload DAF / UPSC application PDF <span className="text-[var(--muted)]">(optional)</span>
           </p>
           <p className="mt-1 text-sm text-[var(--muted)]">
             Not compulsory. If you upload, we extract text to assist the board —
             you still confirm the fields below.
           </p>
-          <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] px-4 py-2 text-sm hover:border-[var(--accent)]/50">
+          <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-md border border-[var(--line)] px-4 py-2 text-sm hover:border-[var(--muted)]">
             <FileUp className="h-4 w-4" />
             {pdfName ? pdfName : "Choose PDF"}
             <input
@@ -406,7 +414,7 @@ export function DAFIntakeForm({
         <button
           type="submit"
           disabled={busy}
-          className="mt-2 inline-flex h-12 items-center justify-center rounded-full bg-[var(--accent)] px-8 font-display font-semibold text-[var(--void)] disabled:opacity-50"
+          className="mt-2 inline-flex h-12 items-center justify-center rounded-md bg-[var(--accent)] px-8 font-display font-semibold text-[var(--void)] disabled:opacity-50"
         >
           {busy ? "Starting board…" : "Enter the board room"}
         </button>
@@ -430,7 +438,7 @@ function Field({
 }) {
   return (
     <label className="grid gap-1.5">
-      <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--muted)]">
+      <span className="text-[11px] text-[var(--muted)]">
         {label}
         {required ? <Req /> : null}
       </span>
@@ -440,4 +448,4 @@ function Field({
 }
 
 const inputClass =
-  "w-full rounded-2xl border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]/50";
+  "w-full rounded-md border border-[var(--line)] bg-[var(--panel-2)] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]/50";

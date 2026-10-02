@@ -4,7 +4,9 @@
 
 Speakeasy is a speech and essay practice studio for competitive exams and open practice. It provides generative topics, prep/speak timers, recording, transcription, evidence-based scoring, local progress graphs, and coaching tips. Government board interview practice runs at `/board`.
 
-Live app: [speakeasy-two-peach.vercel.app](https://speakeasy-two-peach.vercel.app)
+Live app: [spkeasy.in](https://spkeasy.in)
+
+System design notes (engineering): [spkeasy.in/engineering](https://spkeasy.in/engineering)
 
 Repository: [github.com/Swetabh48/SpeakEasy](https://github.com/Swetabh48/SpeakEasy)
 
@@ -30,6 +32,13 @@ Repository: [github.com/Swetabh48/SpeakEasy](https://github.com/Swetabh48/SpeakE
 ---
 
 ## Architecture
+
+See the interactive write-up at **`/engineering`** (live: [spkeasy.in/engineering](https://spkeasy.in/engineering)).
+
+Editable high-level diagram:
+- SVG: [`public/developers/speakeasy-hld.svg`](./public/developers/speakeasy-hld.svg)
+- Excalidraw: [`public/developers/speakeasy-hld.excalidraw`](./public/developers/speakeasy-hld.excalidraw) — open in [excalidraw.com](https://excalidraw.com) via Import
+- Regenerate Excalidraw: `node scripts/generate-hld-excalidraw.mjs`
 
 ```text
 PracticeSpeaking/
@@ -70,7 +79,7 @@ PracticeSpeaking/
 - **Next.js** (App Router) · **React** · **TypeScript**
 - **Tailwind CSS** · **Framer Motion** · **Lucide**
 - **pdfjs-dist** · **@huggingface/transformers** (Whisper in browser)
-- Optional: **Ollama** or any OpenAI-compatible examiner HTTP API
+- Optional: **Ollama** or any chat-completions examiner HTTP API
 - Optional local backend: **FastAPI** + SQLAlchemy (SQLite by default)
 
 ### Data flow — speaking practice
@@ -102,13 +111,19 @@ Optional: set `NEXT_PUBLIC_BACKEND_URL` to a local FastAPI instance for Ollama-b
 
 ### Scoring priority (`src/lib/evaluation/openSource.ts`)
 
-1. `EVALUATOR_URL` — hosted OpenAI-compatible examiner  
+1. `EVALUATOR_URL` — hosted chat-completions examiner  
 2. Ollama at `OLLAMA_BASE_URL`  
 3. Strict local grader in `localScore.ts` (always available)
 
 ### Storage & privacy
 
-All progress is **on-device** (`localStorage`): topic fingerprints, history, streaks, evaluation archive. No account system in v0.1. Audio and transcripts stay in the browser unless you configure a remote evaluator or Whisper API. Do not commit `.env.local`.
+**Guest (default):** progress stays on-device (`localStorage`) — topic fingerprints, history, streaks, evaluation archive, DAF.
+
+**Signed-in (optional):** the same data syncs to Supabase Postgres under your user id (RLS). Practice never requires an account.
+
+Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`, then run [`supabase/migrations/001_user_owned.sql`](./supabase/migrations/001_user_owned.sql) in the Supabase SQL editor. Enable Email magic link and Google OAuth in Authentication → Providers. Add the site URL and `/auth/callback` redirect.
+
+Audio and transcripts stay in the browser unless you configure a remote evaluator or Whisper API. Do not commit `.env.local`.
 
 ---
 

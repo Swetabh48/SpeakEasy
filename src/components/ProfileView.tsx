@@ -2,17 +2,32 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { BrandMark, MetaChip, Panel, Shell } from "@/components/Shell";
-import { buildProfile, loadEvals, type StoredEval } from "@/lib/profile";
+import { AuthButton } from "@/components/AuthButton";
+import { RequireAuth, useAuth } from "@/components/RequireAuth";
+import { BrandMark, MetaChip, Panel, Shell, navPillClass } from "@/components/Shell";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { buildProfile, type StoredEval } from "@/lib/profile";
+import { loadEvalsSynced, mergeLocalAfterLogin } from "@/lib/userData";
 import { modeLabel } from "@/lib/topics/engine";
 
 export function ProfileView() {
+  const { user } = useAuth();
   const [evals, setEvals] = useState<StoredEval[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    setEvals(loadEvals());
-    setHydrated(true);
+    let cancelled = false;
+    void (async () => {
+      await mergeLocalAfterLogin();
+      const next = await loadEvalsSynced();
+      if (!cancelled) {
+        setEvals(next);
+        setHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const profile = useMemo(() => buildProfile(evals), [evals]);
@@ -41,33 +56,53 @@ export function ProfileView() {
     (a, b) => b[1] - a[1],
   );
 
+  const email = user?.email ?? "";
+  const displayName =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    email.split("@")[0] ||
+    "Signed in";
+
   return (
+    <RequireAuth next="/profile">
     <Shell>
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-5 py-5 sm:px-8">
         <Link href="/" className="rounded-2xl transition hover:opacity-90">
           <BrandMark />
         </Link>
-        <Link
-          href="/"
-          className="inline-flex h-10 cursor-pointer items-center rounded-full border border-[var(--line)] bg-[var(--panel)] px-4 text-sm transition hover:border-[var(--accent)]/50 hover:text-[var(--accent)]"
-        >
-          ← Back to practice
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/" className={navPillClass}>
+            ← Practice
+          </Link>
+          <ThemeToggle />
+          <AuthButton next="/profile" />
+        </div>
       </header>
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-5 pb-16 sm:px-8">
         <div className="mb-8 max-w-2xl">
-          <p className="font-mono text-xs uppercase tracking-[0.24em] text-[var(--accent)]">
-            Your growth
-          </p>
+          <p className="text-xs text-[var(--muted)]">Your growth</p>
           <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight sm:text-5xl">
             Profile
           </h1>
           <p className="mt-3 text-[var(--muted)]">
-            Scores and trends from sessions scored on this device. Empty or
-            incomplete attempts stay out of the averages.
+            Scores and trends from your account. Empty or incomplete attempts
+            stay out of the averages.
           </p>
         </div>
+
+        <Panel className="mb-6 flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--accent)]">
+              Account
+            </p>
+            <p className="mt-1 font-display text-xl font-semibold">{displayName}</p>
+            {email ? (
+              <p className="mt-0.5 text-sm text-[var(--muted)]">{email}</p>
+            ) : null}
+          </div>
+          <AuthButton next="/profile" variant="profile" />
+        </Panel>
 
         {!hydrated ? (
           <p className="text-sm text-[var(--muted)]">Loading…</p>
@@ -187,6 +222,7 @@ export function ProfileView() {
         )}
       </main>
     </Shell>
+    </RequireAuth>
   );
 }
 
