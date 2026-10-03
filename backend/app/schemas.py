@@ -81,6 +81,8 @@ class NextQuestionResponse(BaseModel):
     speakerName: str | None = None
     category: str | None = None
     isFollowUp: bool = False
+    llmSource: str | None = None
+    memory: dict[str, Any] | None = None
     trace: ToolTraceOut | None = None
 
 

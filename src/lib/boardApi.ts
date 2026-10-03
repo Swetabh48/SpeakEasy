@@ -66,6 +66,8 @@ export async function fetchBoardQuestion(
     speakerName?: string | null;
     category?: string | null;
     isFollowUp?: boolean;
+    move?: string | null;
+    llmSource?: string | null;
     trace: ToolTrace | null;
   }>("/board/question", {
     method: "POST",

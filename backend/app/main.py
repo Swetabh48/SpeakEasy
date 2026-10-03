@@ -26,22 +26,26 @@ app.include_router(eval_routes.router)
 
 
 def _migrate_sqlite_columns() -> None:
-    """Add board_turns columns introduced in board-v4 without wiping the DB."""
+    """Add columns introduced after initial schema without wiping the DB."""
     if not settings.database_url.startswith("sqlite"):
         return
     insp = inspect(engine)
-    if "board_turns" not in insp.get_table_names():
-        return
-    existing = {c["name"] for c in insp.get_columns("board_turns")}
+    tables = insp.get_table_names()
     alters: list[str] = []
-    if "speaker_id" not in existing:
-        alters.append("ALTER TABLE board_turns ADD COLUMN speaker_id VARCHAR(64)")
-    if "category" not in existing:
-        alters.append("ALTER TABLE board_turns ADD COLUMN category VARCHAR(64)")
-    if "is_follow_up" not in existing:
-        alters.append(
-            "ALTER TABLE board_turns ADD COLUMN is_follow_up BOOLEAN DEFAULT 0 NOT NULL"
-        )
+    if "board_turns" in tables:
+        existing = {c["name"] for c in insp.get_columns("board_turns")}
+        if "speaker_id" not in existing:
+            alters.append("ALTER TABLE board_turns ADD COLUMN speaker_id VARCHAR(64)")
+        if "category" not in existing:
+            alters.append("ALTER TABLE board_turns ADD COLUMN category VARCHAR(64)")
+        if "is_follow_up" not in existing:
+            alters.append(
+                "ALTER TABLE board_turns ADD COLUMN is_follow_up BOOLEAN DEFAULT 0 NOT NULL"
+            )
+    if "board_sessions" in tables:
+        sess_cols = {c["name"] for c in insp.get_columns("board_sessions")}
+        if "memory_json" not in sess_cols:
+            alters.append("ALTER TABLE board_sessions ADD COLUMN memory_json JSON")
     if not alters:
         return
     with engine.begin() as conn:

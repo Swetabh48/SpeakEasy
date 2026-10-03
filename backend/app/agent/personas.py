@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,14 @@ BY_ID = {p.id: p for p in PANEL}
 SKEPTIC = BY_ID["member-d"]
 CHAIR = BY_ID["chair"]
 
+DOMAIN_TO_ID = {
+    "chair-daf": "chair",
+    "subject": "member-a",
+    "affairs-ethics": "member-b",
+    "quiet": "member-c",
+    "skeptic": "member-d",
+}
+
 
 def _hash_ratio(seed: str) -> float:
     h = int(hashlib.sha256(seed.encode("utf-8")).hexdigest(), 16)
@@ -92,15 +101,31 @@ def infer_category(
     board_n: int,
     grounding: str | None,
     is_follow_up: bool,
+    move: str | None = None,
+    memory: dict[str, Any] | None = None,
 ) -> str:
     if is_follow_up:
         return "follow-up"
     if board_n == 0:
         return "welcome"
+    if move == "bridge_close" or (
+        memory and float(memory.get("pressureLevel") or 0) > 0.85 and board_n >= 7
+    ):
+        return "close"
     if grounding:
         return "current-affairs"
     if board_n <= 2:
         return "daf"
+
+    if memory:
+        cov = memory.get("dafCoverage") or {}
+        if cov.get("hobbies") == "none" and board_n >= 3:
+            return "hobby"
+        if cov.get("optionalOrTech") == "none" and (
+            profile.get("optionalSubject") or profile.get("engineeringBranch")
+        ):
+            return "optional-subject" if profile.get("optionalSubject") else "technical"
+
     optional = profile.get("optionalSubject") or ""
     branch = profile.get("engineeringBranch") or ""
     track = profile.get("track") or ""
@@ -124,18 +149,33 @@ def pick_persona(
     category: str,
     is_follow_up: bool,
     force_skeptic: bool = False,
+    analysis: dict[str, Any] | None = None,
+    memory: dict[str, Any] | None = None,
 ) -> PanelPersona:
-    """Route the next utterance to the panelist whose domain fits."""
+    """Route the next utterance to the panelist whose domain / thread fits."""
     board_n = sum(1 for t in turns if t.get("role") == "board")
     seed = f"{profile.get('name')}|{board_n}|{category}|{is_follow_up}"
 
     if board_n == 0 or category == "welcome":
         return CHAIR
+    if category == "close":
+        return CHAIR
 
-    if force_skeptic or (category == "follow-up" and _hash_ratio(seed + "|sk") < 0.35):
+    if is_follow_up and memory and memory.get("openThreads"):
+        thread = memory["openThreads"][-1]
+        if _hash_ratio(seed + "|esc") < 0.35:
+            return SKEPTIC
+        owner = thread.get("ownerSpeakerId")
+        if owner in BY_ID:
+            return BY_ID[owner]
+
+    if force_skeptic or (is_follow_up and _hash_ratio(seed + "|sk") < 0.35):
         return SKEPTIC
 
     if is_follow_up:
+        domain = (analysis or {}).get("bestSpeakerDomain")
+        if domain in DOMAIN_TO_ID and _hash_ratio(seed + "|dom") < 0.7:
+            return BY_ID[DOMAIN_TO_ID[domain]]
         last_board = next(
             (t for t in reversed(turns) if t.get("role") == "board"),
             None,
@@ -147,7 +187,7 @@ def pick_persona(
             return BY_ID[prev_id]
         return SKEPTIC
 
-    if category in ("daf", "hobby", "close"):
+    if category in ("daf", "hobby"):
         return CHAIR
     if category in ("optional-subject", "technical"):
         return BY_ID["member-a"]
@@ -165,11 +205,20 @@ def pick_persona(
     return CHAIR
 
 
-def persona_prompt_block(persona: PanelPersona) -> str:
+def persona_prompt_block(
+    persona: PanelPersona,
+    memory: dict[str, Any] | None = None,
+) -> str:
+    note = ""
+    if memory:
+        notes = memory.get("memberNotes") or {}
+        if notes.get(persona.id):
+            note = f"Your private note from earlier: {notes[persona.id]}\n"
     return (
         f"You are {persona.name}, {persona.role} on an Indian government interview board.\n"
         f"Domain: {persona.domain}. Tone: {persona.tone}.\n"
         f"Style: {persona.speaking_style}\n"
         "Speak as this member only. One clear spoken turn — natural conversation, not a riddle.\n"
-        "No cryptic slogans. No labels like 'Question:'. Prefer 1–3 plain sentences."
+        "No cryptic slogans. No labels like 'Question:'. Prefer 1–3 plain sentences.\n"
+        f"{note}"
     )

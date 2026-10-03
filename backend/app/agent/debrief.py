@@ -15,6 +15,7 @@ def build_debrief(
     turns: list[dict],
     violations: list[dict],
     profile: dict | None = None,
+    memory: dict | None = None,
 ) -> dict:
     """
     Structured Board Report + Discipline Report from stored turns.
@@ -91,6 +92,30 @@ def build_debrief(
             f"Short answers on Q{', Q'.join(map(str, short_idxs))} — "
             "expand with one concrete example next time."
         )
+
+    if memory:
+        from app.agent.memory import thin_daf_fields
+
+        thin = thin_daf_fields(memory)
+        if thin:
+            notes.append(
+                f"DAF coverage still thin on: {', '.join(thin)}. "
+                "Expect the board to return here."
+            )
+        threads = memory.get("openThreads") or []
+        if threads:
+            topics = "; ".join(str(t.get("topic") or "") for t in threads[:3])
+            weaknesses.append(f"Unfinished threads left open: {topics}.")
+        claims = memory.get("claims") or []
+        if len(claims) >= 2:
+            strengths.append(
+                f"Panel captured {len(claims)} concrete claims from your answers — "
+                "good specificity footprint."
+            )
+        notes.append(
+            f"Session pressure level ended at {float(memory.get('pressureLevel') or 0):.2f}."
+        )
+
     if not weaknesses:
         strengths.append("No major length/hedge flags — keep grounding answers in DAF facts.")
     if len(strengths) > 6:

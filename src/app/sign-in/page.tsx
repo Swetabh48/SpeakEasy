@@ -14,6 +14,7 @@ import {
   createClient,
   isSupabaseConfigured,
 } from "@/lib/supabase/client";
+import { authCallbackUrl, getClientSiteUrl } from "@/lib/supabase/siteUrl";
 
 function friendlyAuthError(raw: string): string {
   const lower = raw.toLowerCase();
@@ -103,11 +104,10 @@ function SignInForm() {
     setMessage("");
     try {
       const supabase = createClient();
-      const origin = window.location.origin;
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim(),
         options: {
-          emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          emailRedirectTo: authCallbackUrl(getClientSiteUrl(), next),
         },
       });
       if (error) {
@@ -134,11 +134,11 @@ function SignInForm() {
     setMessage("");
     try {
       const supabase = createClient();
-      const origin = window.location.origin;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          redirectTo: authCallbackUrl(getClientSiteUrl(), next),
+          skipBrowserRedirect: false,
         },
       });
       if (error) {

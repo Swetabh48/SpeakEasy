@@ -206,8 +206,8 @@ export function BoardInterview() {
         },
       ]);
       const label = res.isFollowUp
-        ? `${member.name} is following up…`
-        : `${member.name} (${member.role}) is speaking…`;
+        ? `${member.name} is pressing your last point…`
+        : `${member.name} (${member.role}) — new topic…`;
       setStatus(label);
       setSpeaking(true);
       speakAsMember(res.question, member, () => {

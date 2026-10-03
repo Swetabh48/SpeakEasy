@@ -102,16 +102,26 @@ Home filters → Spin topic → Prep timer → Speak timer
 DAF intake → POST /api/board/session
        → panel greets / asks (TTS)
        → mic answer (silence advances turn)
-       → POST /api/board/answer → next question or follow-up
-       → debrief (Board + Discipline reports)
+       → analyze answer + BoardMemory
+       → press / clarify / new topic (persona owns thread)
+       → debrief uses memory (coverage gaps, open threads)
 ```
 
+**Board brain (same for every visitor — configured on the server, not their laptop):**
+
+1. Free hosted LLM: `EVALUATOR_*` (Groq) and/or your fine-tune via `HF_TOKEN` + `HF_BOARD_MODEL`  
+2. **Mock-interview style pack** (from `mock_interview.pdf`) injected into prompts and used as fallback — ships with the app  
+3. Local Ollama `speakeasy-board` when developing on your PC  
+4. Old template banks only last  
+
+Train + host: [`training/README.md`](./training/README.md) + Colab notebook.
+
 Production uses same-origin `/api/board/*` (works on Vercel for any PC).  
-Optional: set `NEXT_PUBLIC_BACKEND_URL` to a local FastAPI instance for Ollama-backed generation.
+Optional: set `NEXT_PUBLIC_BACKEND_URL` to a local FastAPI instance for the Python orchestrator.
 
 ### Scoring priority (`src/lib/evaluation/openSource.ts`)
 
-1. `EVALUATOR_URL` — hosted chat-completions examiner  
+1. `EVALUATOR_URL` — hosted chat-completions examiner / board model  
 2. Ollama at `OLLAMA_BASE_URL`  
 3. Strict local grader in `localScore.ts` (always available)
 
@@ -121,7 +131,7 @@ Optional: set `NEXT_PUBLIC_BACKEND_URL` to a local FastAPI instance for Ollama-b
 
 **Signed-in (optional):** the same data syncs to Supabase Postgres under your user id (RLS). Practice never requires an account.
 
-Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`, then run [`supabase/migrations/001_user_owned.sql`](./supabase/migrations/001_user_owned.sql) in the Supabase SQL editor. Enable Email magic link and Google OAuth in Authentication → Providers. Add the site URL and `/auth/callback` redirect.
+Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and **`NEXT_PUBLIC_SITE_URL=https://spkeasy.in`** (Vercel + local). In Supabase → Authentication → URL Configuration set **Site URL** to `https://spkeasy.in` and add Redirect URLs: `https://spkeasy.in/**`, `http://localhost:3000/**`. Enable Email + Google under Providers. Google Cloud redirect URI stays `https://<project>.supabase.co/auth/v1/callback`.
 
 Audio and transcripts stay in the browser unless you configure a remote evaluator or Whisper API. Do not commit `.env.local`.
 
@@ -166,18 +176,18 @@ NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8000
 | `npm run lint` | ESLint |
 | `npm test` | Unit tests (Vitest) |
 
-### Optional remote examiner
+### Board brain / remote examiner (free hosted example)
 
 ```bash
-EVALUATOR_URL=
-EVALUATOR_MODEL=speakeasy-examiner
+# Groq free tier (OpenAI-compatible) — used for board + practice scoring
+EVALUATOR_URL=https://api.groq.com/openai
+EVALUATOR_MODEL=llama-3.1-8b-instant
 EVALUATOR_API_KEY=
-
 OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=llama3.1:latest
+OLLAMA_MODEL=speakeasy-board
 ```
 
-Without these, Speakeasy scores with the strict local grader.
+Without a hosted key or Ollama, the board falls back to templated banks; practice scoring uses the strict local grader.
 
 Speech scoring works best in **Chrome** or **Edge**.
 

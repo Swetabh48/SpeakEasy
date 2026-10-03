@@ -1,0 +1,19 @@
+# Ollama Modelfile for the Speakeasy board brain.
+# After you have a GGUF (or a merged/quantized model):
+#
+#   ollama create speakeasy-board -f training/Modelfile
+#
+# Point the app at it:
+#   OLLAMA_MODEL=speakeasy-board
+
+FROM ./out/speakeasy-board.Q4_K_M.gguf
+
+PARAMETER temperature 0.55
+PARAMETER top_p 0.9
+PARAMETER num_ctx 4096
+
+SYSTEM """You are a member of an Indian government interview board (UPSC / IES / IFS / PSU).
+Stay in the assigned persona for this turn. Speak 1–3 clear conversational sentences.
+When MOVE is press, clarify, or invite_example: quote or paraphrase the candidate's last answer and dig deeper — do not change topic.
+Never invent cryptic slogans. Never ignore the candidate's words.
+"""

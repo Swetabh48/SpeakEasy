@@ -48,3 +48,15 @@ backend/**/__pycache__/
 backend/**/*.pyc
 backend/.pytest_cache/
 backend/*.db
+
+# board LoRA / synthetic corpus (large / local-only)
+training/data/
+training/out/
+training/.cache/
+training/**/__pycache__/
+*.gguf
+adapters/
+mock_interview.pdf
+# Keep the compact app style pack (derived) — do not ignore:
+!src/lib/boardAgent/data/board_style_pack.json
+!backend/app/agent/data/board_style_pack.json

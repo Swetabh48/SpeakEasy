@@ -10,10 +10,15 @@ class Settings(BaseSettings):
     # postgresql+psycopg://speakeasy:speakeasy@127.0.0.1:5432/speakeasy
     database_url: str = "sqlite:///./speakeasy_board.db"
     ollama_base_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "llama3.1:latest"
+    # Prefer fine-tuned tag when present; client falls back to llama3.1
+    ollama_model: str = "speakeasy-board"
+    # Free hosted OpenAI-compatible (e.g. Groq) — tried before Ollama
+    evaluator_url: str = ""
+    evaluator_model: str = "llama-3.1-8b-instant"
+    evaluator_api_key: str = ""
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
-    prompt_version: str = "board-v5"
-    # False = full agent (planner → tools → Ollama generator). True = instant banks only.
+    prompt_version: str = "board-v6"
+    # False = full agent (planner → tools → LLM generator). True = instant banks only.
     board_fast_mode: bool = False
     ollama_timeout_seconds: float = 90.0
 

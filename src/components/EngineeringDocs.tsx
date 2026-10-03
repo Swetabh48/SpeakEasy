@@ -100,10 +100,10 @@ const TECH = [
   },
   {
     title: "Board orchestration",
-    name: "In-process boardAgent + optional FastAPI",
+    name: "BoardMemory + answer analyze → persona thread + optional FastAPI",
     why: [
-      "Same-origin Next path satisfies the “works on any PC” requirement for production.",
-      "FastAPI adds persistence and tool traces for local experimentation without blocking deploy.",
+      "Each turn understands the last answer, updates shared memory, and routes follow-ups to the owning panelist.",
+      "Brain order: free hosted EVALUATOR_* (e.g. Groq) → Ollama speakeasy-board → banks. FastAPI optional for local tools/eval.",
     ],
   },
   {

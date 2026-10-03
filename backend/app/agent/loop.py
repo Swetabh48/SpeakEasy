@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.agent import generator, planner, tools
-from app.agent.followup import should_follow_up
+from app.agent.analyze import analyze_answer, move_is_follow_up
+from app.agent.memory import apply_analysis_to_memory, empty_board_memory
+from app.agent.ollama_client import last_llm_meta
 from app.agent.personas import infer_category, pick_persona
 from app.config import get_settings
 from app.models import BoardSession, BoardTurn, CandidateProfile, ToolCallLog
@@ -27,6 +29,7 @@ class QuestionResult:
     speaker_name: str
     category: str
     is_follow_up: bool
+    llm_source: str
 
 
 def _profile_dict(profile: CandidateProfile) -> dict:
@@ -64,13 +67,20 @@ async def next_question(
     turns = list(session.turns)
     profile_data = _profile_dict(profile)
     turn_data = _turns_dicts(turns)
+    memory = dict(session.memory_json or {}) or empty_board_memory()
 
     last_answer = next(
         (t for t in reversed(turns) if t.role == "candidate"),
         None,
     )
+    analysis = None
+    if last_answer:
+        analysis = await analyze_answer(
+            last_answer.text, profile_data, turn_data, memory
+        )
+
     is_follow = bool(
-        last_answer and should_follow_up(last_answer.text, turn_data)
+        analysis and move_is_follow_up(str(analysis.get("suggestedMove") or ""))
     )
 
     trace: ToolTrace | None = None
@@ -78,7 +88,6 @@ async def next_question(
     settings = get_settings()
     board_n = sum(1 for t in turns if t.role == "board")
 
-    # Skip slow planner/LLM/tools in fast mode — keep the room conversational
     if not is_follow and not settings.board_fast_mode:
         plan = await planner.decide(profile_data, turn_data)
         if plan.needs_tool:
@@ -92,13 +101,20 @@ async def next_question(
             )
 
     category = infer_category(
-        profile_data, board_n, grounding, is_follow
+        profile_data,
+        board_n,
+        grounding,
+        is_follow,
+        move=str((analysis or {}).get("suggestedMove") or "") or None,
+        memory=memory,
     )
     persona = pick_persona(
         profile=profile_data,
         turns=turn_data,
         category=category,
         is_follow_up=is_follow,
+        analysis=analysis,
+        memory=memory,
     )
 
     question = await generator.generate(
@@ -109,7 +125,13 @@ async def next_question(
         category=category,
         is_follow_up=is_follow,
         last_answer=last_answer.text if last_answer else None,
+        memory=memory,
+        analysis=analysis,
     )
+
+    if analysis:
+        memory = apply_analysis_to_memory(memory, analysis, persona.id, category)
+        session.memory_json = memory
 
     board_turn = BoardTurn(
         session_id=session.id,
@@ -136,6 +158,8 @@ async def next_question(
 
     db.commit()
     db.refresh(board_turn)
+    meta = last_llm_meta()
+    llm_source = meta["source"] if meta["source"] != "none" else "bank"
     return QuestionResult(
         turn=board_turn,
         trace=trace,
@@ -143,4 +167,5 @@ async def next_question(
         speaker_name=persona.name,
         category=category,
         is_follow_up=is_follow,
+        llm_source=llm_source,
     )

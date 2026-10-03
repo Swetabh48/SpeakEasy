@@ -1,0 +1,21 @@
+{
+  "name": "followup_press_vague",
+  "profile": {
+    "name": "Vikram Das",
+    "homeState": "West Bengal",
+    "education": { "degree": "BA Political Science", "institution": "Presidency University", "year": 2020 },
+    "optionalSubject": "Political Science",
+    "hobbies": ["debate"],
+    "servicePreferences": ["IAS"],
+    "track": "upsc-cse"
+  },
+  "scriptedAnswers": [
+    "I think maybe various things overall synergy going forward.",
+    "In West Bengal I would apply the rule first, document the refusal, and brief my collector on Political Science grounds."
+  ],
+  "asserts": {
+    "followUpMustReferenceAnswer": true,
+    "speakerContinuityOnPress": true,
+    "noIdenticalQuestionPrefix": true
+  }
+}

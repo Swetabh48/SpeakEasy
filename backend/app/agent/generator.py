@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 
 from app.agent.followup import follow_up_hints
-from app.agent.ollama_client import ollama_chat
+from app.agent.memory import memory_prompt_block
+from app.agent.ollama_client import board_chat
 from app.agent.personas import PanelPersona, persona_prompt_block
+from app.agent.style_corpus import corpus_fallback_question, style_prompt_block
 from app.config import get_settings
 
 
@@ -35,12 +37,12 @@ def _fallback_follow_up(
             f"In one clear reason, why are they wrong?"
         ),
         (
-            f"Hmm. That was neat. Too neat. Suppose your collector smiles and says, "
+            f"Hmm. That was neat. Too neat — \"{snippet}\". Suppose your collector smiles and says, "
             f"'Nice theory — do the opposite tomorrow.' What do you say without sulking?"
         ),
         (
-            f"I hear you. Now the arrogant question: if your approach hurts someone you claim to protect, "
-            f"do you still hold it — yes or no, then why?"
+            f"I hear you on \"{snippet}\". Now the arrogant question: if your approach hurts someone "
+            f"you claim to protect, do you still hold it — yes or no, then why?"
         ),
         (
             f"Let me tease this a bit. You sounded confident about \"{snippet}\". "
@@ -53,15 +55,16 @@ def _fallback_follow_up(
             f"What exactly would you do in the first hour, and who is helped or hurt?"
         ),
         (
-            f"Good, but that stayed general. Give us one decision — not a speech — "
+            f"Good, but that stayed general — \"{snippet}\". Give us one decision — not a speech — "
             f"and who lives with the consequences."
         ),
         (
-            f"I noticed some hedging there. Pick a side cleanly: what is your call, and what do you trade away?"
+            f"I noticed some hedging in \"{snippet}\". Pick a side cleanly: what is your call, "
+            f"and what do you trade away?"
         ),
         (
-            f"Connect that answer to something already on your DAF — hometown, optional, work, or a hobby. "
-            f"Don't leave it floating."
+            f"You said \"{snippet}\". Connect that to something already on your DAF — hometown, "
+            f"optional, work, or a hobby. Don't leave it floating."
         ),
     ]
     short_bank = [
@@ -267,37 +270,59 @@ async def generate(
     category: str,
     is_follow_up: bool = False,
     last_answer: str | None = None,
+    memory: dict | None = None,
+    analysis: dict | None = None,
 ) -> str:
     settings = get_settings()
     prior = [t.get("text") for t in turns if t.get("role") == "board"]
     board_n = len(prior)
+    mem = memory or {}
 
-    # Fast path: no LLM wait — conversational fallbacks (real-time interview feel)
+    style = style_prompt_block(
+        f"{category} {persona.domain} {profile.get('homeState')} {profile.get('optionalSubject') or ''}",
+        last_answer,
+    )
+    seed = f"{profile.get('name')}|{category}|{board_n}|{persona.id}"
+
+    # Fast path / emergency: mock-interview corpus first, then banks
     if settings.board_fast_mode:
         if is_follow_up and last_answer:
-            return _fallback_follow_up(profile, turns, persona, last_answer)
-        return _fallback_question(profile, turns, grounding, persona, category)
+            return corpus_fallback_question(seed + "|fu", last_answer, True) or _fallback_follow_up(
+                profile, turns, persona, last_answer
+            )
+        return corpus_fallback_question(seed, last_answer, False) or _fallback_question(
+            profile, turns, grounding, persona, category
+        )
 
     if is_follow_up and last_answer:
         system = (
-            persona_prompt_block(persona)
-            + "\n\nCROSS-QUESTION the last answer. Do not change topic. "
+            persona_prompt_block(persona, mem)
+            + "\n\nCROSS-QUESTION the last answer. Quote or paraphrase one concrete claim. "
+            "Do not change topic. Match real mock-board exemplars. "
             + STYLE_RULES
         )
         user = (
             f"PROMPT_VERSION={settings.prompt_version}\n"
             f"MODE=follow_up\n"
             f"CATEGORY={category}\n"
+            f"MOVE={(analysis or {}).get('suggestedMove')}\n"
+            f"QUOTE_SNIPPET={(analysis or {}).get('quoteSnippet')}\n"
             f"HINTS={follow_up_hints(last_answer)}\n"
+            f"BOARD_MEMORY:\n{memory_prompt_block(mem)}\n"
+            f"STYLE_FROM_MOCK_INTERVIEWS:\n{style}\n"
             f"LAST_ANSWER:\n{last_answer}\n\n"
             f"RECENT_DIALOGUE:\n{turns[-8:]}\n\n"
             f"PROFILE:\n{profile}\n"
         )
-        text = (await ollama_chat(system, user, temperature=0.5)).strip()
+        text = (await board_chat(system, user, temperature=0.5)).strip()
         if not text:
-            return _fallback_follow_up(profile, turns, persona, last_answer)
+            return corpus_fallback_question(seed + "|fu", last_answer, True) or _fallback_follow_up(
+                profile, turns, persona, last_answer
+            )
         first = text.split("\n")[0].strip().strip('"')
-        return first or _fallback_follow_up(profile, turns, persona, last_answer)
+        return first or corpus_fallback_question(
+            seed + "|fu", last_answer, True
+        ) or _fallback_follow_up(profile, turns, persona, last_answer)
 
     phase = (
         "warm_welcome_intro"
@@ -306,25 +331,36 @@ async def generate(
         if board_n <= 2
         else "pressing_board"
     )
-    system = persona_prompt_block(persona) + "\n\n" + STYLE_RULES
+    system = (
+        persona_prompt_block(persona, mem)
+        + "\n\nMatch real mock-board style from the exemplars.\n"
+        + STYLE_RULES
+    )
     user = (
         f"PROMPT_VERSION={settings.prompt_version}\n"
         f"BOARD_TURN_INDEX={board_n}\n"
         f"PHASE={phase}\n"
         f"CATEGORY={category}\n"
+        f"BOARD_MEMORY:\n{memory_prompt_block(mem)}\n"
+        f"STYLE_FROM_MOCK_INTERVIEWS:\n{style}\n"
         f"PROFILE:\n{profile}\n\n"
         f"PRIOR_BOARD_QUESTIONS:\n{prior[-8:]}\n\n"
         f"RECENT_DIALOGUE:\n{turns[-10:]}\n\n"
         f"CURRENT_AFFAIRS_CONTEXT:\n{grounding or '(none)'}\n\n"
-        "Speak the next board turn for this PHASE and CATEGORY."
+        + (f"LAST_ANSWER:\n{last_answer}\n\n" if last_answer else "")
+        + "Speak the next board turn for this PHASE and CATEGORY."
     )
-    text = (await ollama_chat(system, user, temperature=0.55)).strip()
+    text = (await board_chat(system, user, temperature=0.55)).strip()
     if not text:
-        return _fallback_question(profile, turns, grounding, persona, category)
+        return corpus_fallback_question(seed, last_answer, False) or _fallback_question(
+            profile, turns, grounding, persona, category
+        )
     first_line = text.split("\n")[0].strip().strip('"')
     for p in prior:
         if p and first_line.lower()[:40] == p.lower()[:40]:
-            return _fallback_question(profile, turns, grounding, persona, category)
-    return first_line or _fallback_question(
-        profile, turns, grounding, persona, category
-    )
+            return corpus_fallback_question(
+                seed + "|alt", last_answer, False
+            ) or _fallback_question(profile, turns, grounding, persona, category)
+    return first_line or corpus_fallback_question(
+        seed, last_answer, False
+    ) or _fallback_question(profile, turns, grounding, persona, category)

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { nextBoardQuestion } from "@/lib/boardAgent/orchestrate";
+import type { BoardMemory } from "@/lib/boardAgent/memory";
+import { emptyBoardMemory } from "@/lib/boardAgent/memory";
 import type { AgentTurn } from "@/lib/boardAgent/personas";
 import { getSession, saveSession } from "@/lib/boardAgent/store";
 import { sentry } from "@/lib/observability/sentry";
@@ -14,6 +16,7 @@ export async function POST(req: Request) {
       sessionId?: string;
       profile?: CandidateProfile;
       turns?: AgentTurn[];
+      memory?: BoardMemory;
     };
     if (!body.sessionId) {
       return NextResponse.json({ error: "sessionId required" }, { status: 400 });
@@ -21,6 +24,7 @@ export async function POST(req: Request) {
 
     let profile = body.profile;
     let turns = body.turns || [];
+    let memory = body.memory;
     const rec = getSession(body.sessionId);
     if (rec) {
       profile = profile || rec.profile;
@@ -29,6 +33,7 @@ export async function POST(req: Request) {
       } else {
         turns = rec.turns;
       }
+      memory = memory || rec.memory || emptyBoardMemory();
     }
     if (!profile) {
       return NextResponse.json(
@@ -40,7 +45,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await nextBoardQuestion(profile, turns);
+    const result = await nextBoardQuestion(profile, turns, memory);
     const boardTurn: AgentTurn = {
       role: "board",
       text: result.question,
@@ -52,6 +57,7 @@ export async function POST(req: Request) {
 
     if (rec) {
       rec.turns = [...turns, boardTurn];
+      rec.memory = result.memory;
       saveSession(rec);
     }
 
@@ -62,6 +68,9 @@ export async function POST(req: Request) {
       speakerName: result.speakerName,
       category: result.category,
       isFollowUp: result.isFollowUp,
+      move: result.isFollowUp ? "follow_up" : "new_topic",
+      llmSource: result.llmSource,
+      memory: result.memory,
       trace: null,
     });
   } catch (e) {

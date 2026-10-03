@@ -1,3 +1,5 @@
+import type { BoardMemory } from "@/lib/boardAgent/memory";
+import { emptyBoardMemory } from "@/lib/boardAgent/memory";
 import type { AgentTurn } from "@/lib/boardAgent/personas";
 import type { CandidateProfile } from "@/lib/topics/board";
 
@@ -6,6 +8,7 @@ export type BoardSessionRecord = {
   profileId: string;
   profile: CandidateProfile;
   turns: AgentTurn[];
+  memory: BoardMemory;
   startedAt: string;
 };
 
@@ -29,6 +32,7 @@ export function createSession(profile: CandidateProfile): BoardSessionRecord {
     profileId,
     profile,
     turns: [],
+    memory: emptyBoardMemory(),
     startedAt: new Date().toISOString(),
   };
   store().set(sessionId, rec);
@@ -40,5 +44,6 @@ export function getSession(sessionId: string): BoardSessionRecord | undefined {
 }
 
 export function saveSession(rec: BoardSessionRecord): void {
+  if (!rec.memory) rec.memory = emptyBoardMemory();
   store().set(rec.sessionId, rec);
 }

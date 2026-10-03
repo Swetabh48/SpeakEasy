@@ -39,6 +39,7 @@ class BoardSession(Base):
         Uuid, ForeignKey("candidate_profiles.id"), nullable=False
     )
     track: Mapped[str] = mapped_column(String(64), nullable=False)
+    memory_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

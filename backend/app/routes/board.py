@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.debrief import build_debrief
 from app.agent.loop import next_question
+from app.agent.memory import empty_board_memory
 from app.db import get_db
 from app.models import BoardSession, BoardTurn, CandidateProfile, ViolationEvent
 from app.schemas import (
@@ -43,7 +44,11 @@ def create_session(body: CreateSessionRequest, db: Session = Depends(get_db)):
     )
     db.add(profile)
     db.flush()
-    session = BoardSession(profile_id=profile.id, track=p.track)
+    session = BoardSession(
+        profile_id=profile.id,
+        track=p.track,
+        memory_json=empty_board_memory(),
+    )
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -81,6 +86,8 @@ async def ask_question(body: NextQuestionRequest, db: Session = Depends(get_db))
         speakerName=result.speaker_name,
         category=result.category,
         isFollowUp=result.is_follow_up,
+        llmSource=result.llm_source,
+        memory=session.memory_json or None,
         trace=trace_out,
     )
 
@@ -149,7 +156,12 @@ def debrief_session(body: DebriefRequest, db: Session = Depends(get_db)):
             "optionalSubject": profile.optional_subject,
             "track": profile.track,
         }
-    data = build_debrief(turns=turns, violations=violations, profile=profile_dict)
+    data = build_debrief(
+        turns=turns,
+        violations=violations,
+        profile=profile_dict,
+        memory=session.memory_json or None,
+    )
     return DebriefResponse(**data)
 
 

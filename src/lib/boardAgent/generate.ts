@@ -16,15 +16,15 @@ export function fallbackFollowUp(
 
   const skeptic = [
     `Alright ${name}, forgive me — I am going to be a little difficult. You said, roughly, "${snippet}". A popular officer might do the opposite. In one clear reason, why are they wrong?`,
-    `Hmm. That was neat. Too neat. Suppose your collector smiles and says, "Nice theory — do the opposite tomorrow." What do you say without sulking?`,
-    `I hear you. Now the arrogant question: if your approach hurts someone you claim to protect, do you still hold it — yes or no, then why?`,
+    `Hmm. That was neat. Too neat — "${snippet}". Suppose your collector smiles and says, "Nice theory — do the opposite tomorrow." What do you say without sulking?`,
+    `I hear you on "${snippet}". Now the arrogant question: if your approach hurts someone you claim to protect, do you still hold it — yes or no, then why?`,
     `Let me tease this a bit. You sounded confident about "${snippet}". Where does that break on a chaotic Monday in the district — one concrete failure mode?`,
   ];
   const press = [
     `Thank you. Stay with that for a moment. You mentioned "${snippet}". What exactly would you do in the first hour, and who is helped or hurt?`,
-    `Good, but that stayed general. Give us one decision — not a speech — and who lives with the consequences.`,
-    `I noticed some hedging there. Pick a side cleanly: what is your call, and what do you trade away?`,
-    `Connect that answer to something already on your DAF — hometown, optional, work, or a hobby. Don't leave it floating.`,
+    `Good, but that stayed general — "${snippet}". Give us one decision — not a speech — and who lives with the consequences.`,
+    `I noticed some hedging in "${snippet}". Pick a side cleanly: what is your call, and what do you trade away?`,
+    `You said "${snippet}". Connect that to something already on your DAF — hometown, optional, work, or a hobby. Don't leave it floating.`,
   ];
   const short = [
     `That was very brief, ${name}. Take thirty seconds more — one example from your own background, please.`,

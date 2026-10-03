@@ -1,3 +1,5 @@
+import type { BoardMemory } from "@/lib/boardAgent/memory";
+import { thinDafFields } from "@/lib/boardAgent/memory";
 import type { AgentTurn } from "@/lib/boardAgent/personas";
 import type { CandidateProfile } from "@/lib/topics/board";
 
@@ -8,6 +10,7 @@ export function buildDebrief(
   turns: AgentTurn[],
   violations: { kind?: string; atMs?: number }[],
   profile?: CandidateProfile | null,
+  memory?: BoardMemory | null,
 ) {
   const boardQs = turns.filter((t) => t.role === "board");
   const answers = turns.filter((t) => t.role === "candidate");
@@ -75,6 +78,30 @@ export function buildDebrief(
       `Short answers on Q${shortIdxs.join(", Q")} — expand with one concrete example next time.`,
     );
   }
+
+  if (memory) {
+    const thin = thinDafFields(memory);
+    if (thin.length) {
+      notes.push(
+        `DAF coverage still thin on: ${thin.join(", ")}. Expect the board to return here.`,
+      );
+    }
+    if (memory.openThreads.length) {
+      weaknesses.push(
+        `Unfinished threads left open: ${memory.openThreads
+          .slice(0, 3)
+          .map((t) => t.topic)
+          .join("; ")}.`,
+      );
+    }
+    if (memory.claims.length >= 2) {
+      strengths.push(
+        `Panel captured ${memory.claims.length} concrete claims from your answers — good specificity footprint.`,
+      );
+    }
+    notes.push(`Session pressure level ended at ${memory.pressureLevel.toFixed(2)}.`);
+  }
+
   if (!weaknesses.length) {
     strengths.push(
       "No major length/hedge flags — keep grounding answers in DAF facts.",

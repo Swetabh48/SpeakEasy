@@ -1,0 +1,49 @@
+[
+  {
+    "name": "Ananya Sharma",
+    "homeState": "Rajasthan",
+    "education": { "degree": "BA History", "institution": "University of Rajasthan", "year": 2021 },
+    "optionalSubject": "History",
+    "hobbies": ["trekking", "community tutoring"],
+    "servicePreferences": ["IAS", "IPS"],
+    "track": "upsc-cse"
+  },
+  {
+    "name": "Rohit Nair",
+    "homeState": "Kerala",
+    "education": { "degree": "BTech Mechanical", "institution": "NIT Calicut", "year": 2019 },
+    "engineeringBranch": "Mechanical",
+    "workExperience": "Two years at a PSU fabrication shop",
+    "hobbies": ["chess"],
+    "servicePreferences": ["IES"],
+    "track": "ies-ese"
+  },
+  {
+    "name": "Meera Joshi",
+    "homeState": "Maharashtra",
+    "education": { "degree": "BSc Forestry", "institution": "FRI Dehradun", "year": 2020 },
+    "optionalSubject": "Forestry",
+    "hobbies": ["birdwatching"],
+    "servicePreferences": ["IFS"],
+    "track": "ifs"
+  },
+  {
+    "name": "Karthik Reddy",
+    "homeState": "Telangana",
+    "education": { "degree": "BTech Electrical", "institution": "Osmania University", "year": 2018 },
+    "engineeringBranch": "Electrical",
+    "workExperience": "Substation O&M engineer",
+    "hobbies": ["running"],
+    "servicePreferences": ["PSU"],
+    "track": "psu-technical"
+  },
+  {
+    "name": "Sana Qureshi",
+    "homeState": "Uttar Pradesh",
+    "education": { "degree": "MA Sociology", "institution": "JNU", "year": 2022 },
+    "optionalSubject": "Sociology",
+    "hobbies": ["theatre"],
+    "servicePreferences": ["IAS"],
+    "track": "upsc-cse"
+  }
+]
