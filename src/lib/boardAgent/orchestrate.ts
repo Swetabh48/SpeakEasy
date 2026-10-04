@@ -30,12 +30,64 @@ export type NextQuestionResult = {
   llmSource: "evaluator" | "ollama" | "corpus" | "bank";
 };
 
+function emergencyQuestion(
+  profile: CandidateProfile,
+  turns: AgentTurn[],
+  memory: BoardMemory,
+): NextQuestionResult {
+  const boardN = turns.filter((t) => t.role === "board").length;
+  const category = inferCategory(profile, boardN, false, undefined, memory);
+  const persona = pickPersona(profile, turns, category, false, null, memory);
+  const lastAnswer = [...turns].reverse().find((t) => t.role === "candidate");
+  const fromCorpus = corpusFallbackQuestion(
+    `${profile.name}|${category}|${boardN}|emergency|${persona.id}`,
+    lastAnswer?.text,
+    Boolean(lastAnswer),
+  );
+  const question =
+    fromCorpus ||
+    (lastAnswer
+      ? fallbackFollowUp(profile, persona, lastAnswer.text)
+      : fallbackQuestion(profile, turns, persona, category));
+  return {
+    question,
+    speakerId: persona.id,
+    speakerName: persona.name,
+    category,
+    isFollowUp: Boolean(lastAnswer && fromCorpus),
+    memory,
+    llmSource: fromCorpus ? "corpus" : "bank",
+  };
+}
+
 export async function nextBoardQuestion(
   profile: CandidateProfile,
   turns: AgentTurn[],
   priorMemory?: BoardMemory | null,
 ): Promise<NextQuestionResult> {
-  let memory = priorMemory ? { ...priorMemory, dafCoverage: { ...priorMemory.dafCoverage }, memberNotes: { ...priorMemory.memberNotes }, claims: [...priorMemory.claims], openThreads: [...priorMemory.openThreads] } : emptyBoardMemory();
+  const memorySeed = priorMemory
+    ? {
+        ...priorMemory,
+        dafCoverage: { ...priorMemory.dafCoverage },
+        memberNotes: { ...priorMemory.memberNotes },
+        claims: [...priorMemory.claims],
+        openThreads: [...priorMemory.openThreads],
+      }
+    : emptyBoardMemory();
+
+  try {
+    return await nextBoardQuestionInner(profile, turns, memorySeed);
+  } catch {
+    return emergencyQuestion(profile, turns, memorySeed);
+  }
+}
+
+async function nextBoardQuestionInner(
+  profile: CandidateProfile,
+  turns: AgentTurn[],
+  memoryIn: BoardMemory,
+): Promise<NextQuestionResult> {
+  let memory = memoryIn;
 
   const lastAnswer = [...turns].reverse().find((t) => t.role === "candidate");
   const boardN = turns.filter((t) => t.role === "board").length;
@@ -144,6 +196,10 @@ export async function nextBoardQuestion(
         break;
       }
     }
+  }
+
+  if (!question.trim()) {
+    return emergencyQuestion(profile, turns, memory);
   }
 
   if (analysis) {

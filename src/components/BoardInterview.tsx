@@ -183,39 +183,69 @@ export function BoardInterview() {
       setSpeaking(false);
       setAnswering(false);
       stopBoardSpeech();
-      const res = await fetchBoardQuestion(sid, {
-        profile: profileRef.current || undefined,
-        turns: turnsRef.current,
-      });
-      const member = getPanelMember(res.speakerId || undefined);
-      setSpeaker(member);
-      setCurrentQ(res.question);
-      setIsFollowUp(Boolean(res.isFollowUp));
-      setCategory(res.category || null);
-      setTrace(res.trace);
-      setTurns((prev) => [
-        ...prev,
-        {
-          role: "board",
-          text: res.question,
-          timestampMs: Date.now(),
-          speakerId: member.id,
-          speakerName: member.name,
-          category: res.category || undefined,
-          isFollowUp: Boolean(res.isFollowUp),
-        },
-      ]);
-      const label = res.isFollowUp
-        ? `${member.name} is pressing your last point…`
-        : `${member.name} (${member.role}) — new topic…`;
-      setStatus(label);
-      setSpeaking(true);
-      speakAsMember(res.question, member, () => {
-        setSpeaking(false);
-        setStatus("Your turn — speak naturally. Pause when you are done.");
-        scheduleTakeYourTime();
-        openMicAfterPanel();
-      });
+
+      const applyQuestion = (res: Awaited<ReturnType<typeof fetchBoardQuestion>>) => {
+        const member = getPanelMember(res.speakerId || undefined);
+        setSpeaker(member);
+        setCurrentQ(res.question);
+        setIsFollowUp(Boolean(res.isFollowUp));
+        setCategory(res.category || null);
+        setTrace(res.trace);
+        setTurns((prev) => [
+          ...prev,
+          {
+            role: "board",
+            text: res.question,
+            timestampMs: Date.now(),
+            speakerId: member.id,
+            speakerName: member.name,
+            category: res.category || undefined,
+            isFollowUp: Boolean(res.isFollowUp),
+          },
+        ]);
+        const label = res.isFollowUp
+          ? `${member.name} is pressing your last point…`
+          : `${member.name} (${member.role}) — new topic…`;
+        setStatus(label);
+        setSpeaking(true);
+        speakAsMember(res.question, member, () => {
+          setSpeaking(false);
+          setStatus("Your turn — speak naturally. Pause when you are done.");
+          scheduleTakeYourTime();
+          openMicAfterPanel();
+        });
+      };
+
+      try {
+        const res = await fetchBoardQuestion(sid, {
+          profile: profileRef.current || undefined,
+          turns: turnsRef.current,
+        });
+        setError(null);
+        applyQuestion(res);
+      } catch (err) {
+        // One retry — cold Modal / flaky edge often succeeds on second try.
+        setStatus("Panel recovering…");
+        try {
+          await new Promise((r) => window.setTimeout(r, 800));
+          const res = await fetchBoardQuestion(sid, {
+            profile: profileRef.current || undefined,
+            turns: turnsRef.current,
+          });
+          setError(null);
+          applyQuestion(res);
+        } catch (err2) {
+          const msg =
+            err2 instanceof Error
+              ? err2.message
+              : err instanceof Error
+                ? err.message
+                : "Panel could not prepare a question";
+          setError(msg);
+          setStatus("Panel stalled — tap End, then re-enter the board.");
+          setSpeaking(false);
+        }
+      }
     },
     [clearPaceTimers, openMicAfterPanel, scheduleTakeYourTime],
   );
@@ -246,6 +276,9 @@ export function BoardInterview() {
         );
       }, 50);
       await askNext(session.sessionId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start board");
+      setStatus("Could not start — check connection and try again.");
     } finally {
       setBusy(false);
     }

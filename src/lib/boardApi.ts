@@ -24,13 +24,20 @@ function boardPath(path: string): string {
   return `/api${p}`;
 }
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+async function api<T>(
+  path: string,
+  init?: RequestInit & { timeoutMs?: number },
+): Promise<T> {
+  const { timeoutMs, ...rest } = init || {};
   const res = await fetch(boardPath(path), {
-    ...init,
+    ...rest,
     headers: {
       "Content-Type": "application/json",
-      ...(init?.headers || {}),
+      ...(rest.headers || {}),
     },
+    ...(timeoutMs
+      ? { signal: AbortSignal.timeout(timeoutMs) }
+      : {}),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -71,6 +78,8 @@ export async function fetchBoardQuestion(
     trace: ToolTrace | null;
   }>("/board/question", {
     method: "POST",
+    // Stay under Vercel kill; surface error so UI can recover instead of hanging.
+    timeoutMs: 55_000,
     body: JSON.stringify({
       sessionId,
       profile: opts?.profile,

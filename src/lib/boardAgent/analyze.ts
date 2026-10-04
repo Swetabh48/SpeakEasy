@@ -145,7 +145,11 @@ export async function analyzeAnswer(
     `RECENT:\n${JSON.stringify(turns.slice(-8))}\n\n` +
     `LAST_ANSWER:\n${answer}`;
 
-  const llm = await boardLlmChat(system, user, 0.2, { timeoutMs: 12_000 });
+  // Short budget — heuristic is fine if hosted brain is cold/slow.
+  const llm = await boardLlmChat(system, user, 0.2, {
+    purpose: "analyze",
+    timeoutMs: 8_000,
+  });
   const parsed = extractJsonObject(llm);
   if (!parsed) return fallback;
   return normalizeAnalysis(parsed, fallback);

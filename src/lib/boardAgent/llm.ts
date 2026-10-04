@@ -1,4 +1,4 @@
-/** Board LLM: free hosted (EVALUATOR_*) → Ollama (speakeasy-board preferred) → empty. */
+/** Board LLM: free hosted (EVALUATOR_*) → optional Ollama → empty (corpus/banks). */
 
 export type BoardLlmMeta = {
   source: "evaluator" | "ollama" | "none";
@@ -42,6 +42,22 @@ export function extractJsonObject(text: string): Record<string, unknown> | null 
   } catch {
     return null;
   }
+}
+
+/**
+ * Ollama only when useful. Never probe 127.0.0.1 on Vercel — that was hanging
+ * board turns until the serverless function was killed (UI stuck on "preparing").
+ */
+function resolveOllamaBaseUrl(): string | null {
+  const explicit = process.env.OLLAMA_BASE_URL?.trim();
+  if (explicit) {
+    if (process.env.VERCEL && /127\.0\.0\.1|localhost/i.test(explicit)) {
+      return null;
+    }
+    return explicit;
+  }
+  if (process.env.VERCEL) return null;
+  return "http://127.0.0.1:11434";
 }
 
 async function chatCompletions(
@@ -106,7 +122,7 @@ async function ollamaChat(
 async function ollamaHasModel(baseUrl: string, name: string): Promise<boolean> {
   try {
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/tags`, {
-      signal: AbortSignal.timeout(3_000),
+      signal: AbortSignal.timeout(2_000),
     });
     if (!res.ok) return false;
     const data = (await res.json()) as { models?: { name?: string }[] };
@@ -131,7 +147,7 @@ async function resolveOllamaModel(baseUrl: string): Promise<string> {
 
 /**
  * Free hosted OpenAI-compatible:
- * EVALUATOR_* (Groq / your host) → Hugging Face router (fine-tuned speakeasy-board) → Ollama → "".
+ * EVALUATOR_* → Hugging Face router (optional) → Ollama (local / explicit) → "".
  */
 export async function boardLlmChat(
   system: string,
@@ -139,12 +155,17 @@ export async function boardLlmChat(
   temperature = 0.55,
   options: BoardLlmOptions = {},
 ): Promise<string> {
-  const hostedTimeout = options.timeoutMs ?? (options.purpose === "generate" ? 20_000 : 12_000);
-  const ollamaTimeout = options.timeoutMs ?? (options.purpose === "generate" ? 60_000 : 25_000);
+  // Keep under Vercel maxDuration (60s) so corpus fallback always runs.
+  const hostedTimeout =
+    options.timeoutMs ??
+    (options.purpose === "generate" ? 28_000 : 8_000);
+  const ollamaTimeout =
+    options.timeoutMs ??
+    (options.purpose === "generate" ? 25_000 : 8_000);
 
   const customUrl = process.env.EVALUATOR_URL?.trim();
-  const customModel = process.env.EVALUATOR_MODEL?.trim() || "llama-3.1-8b-instant";
-  const ollamaUrl = process.env.OLLAMA_BASE_URL?.trim() || "http://127.0.0.1:11434";
+  const customModel = process.env.EVALUATOR_MODEL?.trim() || "speakeasy-board";
+  const ollamaUrl = resolveOllamaBaseUrl();
   const hfToken =
     process.env.HF_TOKEN?.trim() ||
     process.env.HUGGINGFACE_HUB_TOKEN?.trim() ||
@@ -174,7 +195,6 @@ export async function boardLlmChat(
     }
   }
 
-  // Free Hugging Face Inference (OpenAI-compatible router) — host your fine-tune here
   if (hfToken && !customUrl) {
     try {
       const content = await chatCompletions(
@@ -184,33 +204,35 @@ export async function boardLlmChat(
         system,
         user,
         temperature,
-        hostedTimeout,
+        Math.min(hostedTimeout, 20_000),
       );
       if (content) {
         lastMeta = { source: "evaluator", model: hfModel };
         return content;
       }
     } catch {
-      /* fall through to Ollama */
+      /* fall through */
     }
   }
 
-  try {
-    const model = await resolveOllamaModel(ollamaUrl);
-    const content = await ollamaChat(
-      ollamaUrl,
-      model,
-      system,
-      user,
-      temperature,
-      ollamaTimeout,
-    );
-    if (content) {
-      lastMeta = { source: "ollama", model };
-      return content;
+  if (ollamaUrl) {
+    try {
+      const model = await resolveOllamaModel(ollamaUrl);
+      const content = await ollamaChat(
+        ollamaUrl,
+        model,
+        system,
+        user,
+        temperature,
+        ollamaTimeout,
+      );
+      if (content) {
+        lastMeta = { source: "ollama", model };
+        return content;
+      }
+    } catch {
+      /* corpus / banks */
     }
-  } catch {
-    /* corpus / banks */
   }
 
   lastMeta = { source: "none", model: "" };
