@@ -140,6 +140,18 @@ export async function POST(request: Request) {
     .upsert(stateRow, { onConflict: "user_id" });
 
   if (stateError) {
+    const missing =
+      /does not exist|relation|schema cache/i.test(stateError.message) ||
+      stateError.code === "42P01" ||
+      stateError.code === "PGRST205";
+    if (missing) {
+      return NextResponse.json({
+        ok: true,
+        merged: false,
+        skipped: "cloud_tables_missing",
+        counts: { evaluations: 0, history: 0, seen: 0 },
+      });
+    }
     return NextResponse.json({ error: stateError.message }, { status: 500 });
   }
 

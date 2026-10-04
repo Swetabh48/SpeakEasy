@@ -10,14 +10,16 @@ export function shouldFollowUp(answer: string, priorTurns: AgentTurn[]): boolean
   const text = (answer || "").trim();
   if (!text) return false;
 
+  const words = text.split(/\s+/).filter(Boolean);
+  const n = words.length;
+  // Very short / confused lines always get pressed — no coin-flip skip.
+  if (n < 14) return true;
+
   const boardN = priorTurns.filter((t) => t.role === "board").length;
   if (boardN === 0) {
-    const words0 = text.split(/\s+/).length;
-    return words0 < 45 && hashRatio(text + "|intro") < 0.55;
+    return n < 45 && hashRatio(text + "|intro") < 0.55;
   }
 
-  const words = text.split(/\s+/);
-  const n = words.length;
   const hedges = (text.match(HEDGE_RE) || []).length;
   const vague = (text.match(VAGUE_RE) || []).length;
 

@@ -53,6 +53,14 @@ export async function GET() {
     .maybeSingle();
 
   if (error) {
+    // Tables not migrated yet — keep the shell working (empty cloud state).
+    const missing =
+      /does not exist|relation|schema cache/i.test(error.message) ||
+      error.code === "42P01" ||
+      error.code === "PGRST205";
+    if (missing) {
+      return NextResponse.json({ state: rowToState(null) });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -97,6 +105,13 @@ export async function PATCH(request: Request) {
     .single();
 
   if (error) {
+    const missing =
+      /does not exist|relation|schema cache/i.test(error.message) ||
+      error.code === "42P01" ||
+      error.code === "PGRST205";
+    if (missing) {
+      return NextResponse.json({ state: rowToState(null) });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

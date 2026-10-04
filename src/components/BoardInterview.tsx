@@ -26,10 +26,12 @@ import {
 } from "@/lib/boardSpeech";
 import {
   clarifyQuestionText,
+  clarifyTermConfusion,
   containsAbusiveLanguage,
   isClarifyRequest,
   isMetaQuestionRequest,
   isRepeatRequest,
+  isTermConfusionRequest,
 } from "@/lib/boardIntent";
 import { isMobileLike } from "@/lib/device";
 import type { ViolationKind } from "@/lib/proctor/types";
@@ -64,6 +66,7 @@ export function BoardInterview() {
   const [isFollowUp, setIsFollowUp] = useState(false);
   const [category, setCategory] = useState<string | null>(null);
   const [trace, setTrace] = useState<ToolTrace | null>(null);
+  const [llmSource, setLlmSource] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [answerDraft, setAnswerDraft] = useState("");
@@ -179,7 +182,12 @@ export function BoardInterview() {
     async (sid: string) => {
       clearPaceTimers();
       autoListenGen.current += 1;
-      setStatus("Panel preparing…");
+      const firstTurn = turnsRef.current.filter((t) => t.role === "board").length === 0;
+      setStatus(
+        firstTurn
+          ? "Chair preparing the opening question…"
+          : "Panel preparing the next question…",
+      );
       setSpeaking(false);
       setAnswering(false);
       stopBoardSpeech();
@@ -191,6 +199,7 @@ export function BoardInterview() {
         setIsFollowUp(Boolean(res.isFollowUp));
         setCategory(res.category || null);
         setTrace(res.trace);
+        setLlmSource(res.llmSource || null);
         setTurns((prev) => [
           ...prev,
           {
@@ -205,7 +214,9 @@ export function BoardInterview() {
         ]);
         const label = res.isFollowUp
           ? `${member.name} is pressing your last point…`
-          : `${member.name} (${member.role}) — new topic…`;
+          : firstTurn
+            ? `${member.name} (${member.role}) — opening…`
+            : `${member.name} (${member.role}) — new topic…`;
         setStatus(label);
         setSpeaking(true);
         speakAsMember(res.question, member, () => {
@@ -450,16 +461,21 @@ export function BoardInterview() {
         return;
       }
 
-      // "Please repeat / be clearer" must NOT advance to a new topic
+      // "Please repeat / be clearer / what even is X" must NOT advance to a new topic
       if (isMetaQuestionRequest(text) && currentQ && speaker) {
         setTurns((prev) => [
           ...prev,
           { role: "candidate", text, timestampMs: Date.now() },
         ]);
-        const clarify = isClarifyRequest(text) && !isRepeatRequest(text);
-        const spoken = clarify
-          ? clarifyQuestionText(currentQ)
-          : `Certainly. The question again. ${currentQ}`;
+        const termConfused = isTermConfusionRequest(text);
+        const clarify =
+          termConfused ||
+          (isClarifyRequest(text) && !isRepeatRequest(text));
+        const spoken = termConfused
+          ? clarifyTermConfusion(currentQ, text)
+          : clarify
+            ? clarifyQuestionText(currentQ)
+            : `Certainly. The question again. ${currentQ}`;
         setStatus(
           clarify
             ? `${speaker.name} is clarifying…`
@@ -522,6 +538,7 @@ export function BoardInterview() {
     setIsFollowUp(false);
     setCategory(null);
     setTrace(null);
+    setLlmSource(null);
     setStatus(null);
     sessionViolations.current = [];
     proctor.clearViolations();
@@ -693,6 +710,7 @@ export function BoardInterview() {
           {profile && <MetaChip>{trackLabel(profile.track)}</MetaChip>}
           {category && <MetaChip>{category}</MetaChip>}
           {isFollowUp && <MetaChip>follow-up</MetaChip>}
+          {llmSource && <MetaChip>brain {llmSource}</MetaChip>}
           <MetaChip>violations {proctor.violations.length}</MetaChip>
           {!isFs && (
             <button
@@ -735,7 +753,10 @@ export function BoardInterview() {
               <p className="mt-1 text-xs text-[var(--muted)]">{speaker.persona}</p>
             )}
             <p className="mt-3 font-display text-2xl leading-snug sm:text-3xl">
-              {currentQ || "Panel preparing the next question…"}
+              {currentQ ||
+                (turns.filter((t) => t.role === "board").length === 0
+                  ? "Chair preparing the opening question…"
+                  : "Panel preparing the next question…")}
             </p>
             {trace?.usedInQuestion && (
               <p className="mt-2 text-sm text-[var(--teal)]">

@@ -17,8 +17,42 @@ import {
   corpusFallbackQuestion,
   stylePromptBlock,
 } from "@/lib/boardAgent/styleCorpus";
+import { clarifyQuestionText, isMetaQuestionRequest } from "@/lib/boardIntent";
 import type { PanelMemberId } from "@/lib/boardPanel";
 import type { CandidateProfile } from "@/lib/topics/board";
+
+/** Reject obvious SmolLM / cold-model garbage so mock-doc banks take over. */
+function isLowQualityQuestion(
+  question: string,
+  profile: CandidateProfile,
+  lastBoard?: string | null,
+  requireFollowUp = false,
+): boolean {
+  const q = question.trim();
+  if (q.length < 24) return true;
+  const lower = q.toLowerCase();
+  const first = (profile.name || "").trim().split(/\s+/)[0] || "";
+  // Invented candidate name at start ("Mona, welcome…")
+  const lead = q.match(/^([A-Z][a-z]{2,}),/);
+  if (lead && first && lead[1].toLowerCase() !== first.toLowerCase()) return true;
+  // Known hallucination styles from the tiny LoRA host
+  if (/\b(hana culture|henna culture)\b/i.test(q) && !lower.includes("rajasthan") && !lower.includes("mehndi")) {
+    /* allow if grounded; still often junk — fall through */
+  }
+  if (/\bdon'?t rush the meeting\b/i.test(q)) return true;
+  if (requireFollowUp && lastBoard) {
+    const boardTok = new Set(
+      (lastBoard.toLowerCase().match(/[a-z]{4,}/g) || []).slice(0, 24),
+    );
+    const qTok = lower.match(/[a-z]{4,}/g) || [];
+    const overlap = qTok.filter((w) => boardTok.has(w)).length;
+    // Completely new policy essay with zero overlap = topic hop
+    if (overlap === 0 && /\b(budget|education system|gdp|inflation)\b/i.test(q)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export type NextQuestionResult = {
   question: string;
@@ -123,14 +157,42 @@ async function nextBoardQuestionInner(
     lastAnswer?.text,
   );
 
+  const lastBoardText =
+    [...turns].reverse().find((t) => t.role === "board")?.text || "";
+
+  // Candidate asked "what even is X?" — hold the same board question (server-side too).
+  if (lastAnswer && isMetaQuestionRequest(lastAnswer.text) && lastBoardText) {
+    question = clarifyQuestionText(lastBoardText);
+    fallbackKind = "bank";
+    if (analysis) {
+      memory = applyAnalysisToMemory(
+        memory,
+        { ...analysis, suggestedMove: "clarify" },
+        persona.id as PanelMemberId,
+        category,
+      );
+    }
+    return {
+      question,
+      speakerId: persona.id,
+      speakerName: persona.name,
+      category,
+      isFollowUp: true,
+      memory,
+      llmSource: "bank",
+    };
+  }
+
   if (isFollowUp && lastAnswer && analysis) {
     const system =
       personaSystem(persona, memory) +
       "\n\nCROSS-QUESTION the last answer. Quote or paraphrase one concrete claim. " +
       "Do not change topic. Clear spoken English. 1–3 sentences. " +
-      "Match the tone of real UPSC mock boards in the exemplars.";
+      "Match the tone of real UPSC mock boards in the exemplars. " +
+      "If MOVE=clarify, rephrase the LAST board question more simply — do not invent a new topic.";
     const user =
       `MOVE=${analysis.suggestedMove}\n` +
+      `LAST_BOARD_QUESTION:\n${lastBoardText}\n` +
       `QUOTE_SNIPPET=${analysis.quoteSnippet}\n` +
       `CLAIMS=${JSON.stringify(analysis.extractClaims)}\n` +
       `BOARD_MEMORY:\n${memoryPromptBlock(memory)}\n` +
@@ -139,8 +201,12 @@ async function nextBoardQuestionInner(
       `PROFILE:\n${JSON.stringify(profile)}\n` +
       `RECENT:\n${JSON.stringify(turns.slice(-8))}`;
     const llm = await boardLlmChat(system, user, 0.5, { purpose: "generate" });
-    if (firstLine(llm)) {
-      question = firstLine(llm);
+    const line = firstLine(llm);
+    if (
+      line &&
+      !isLowQualityQuestion(line, profile, lastBoardText, true)
+    ) {
+      question = line;
     } else {
       const fromCorpus = corpusFallbackQuestion(
         `${profile.name}|${category}|fu`,
@@ -171,8 +237,9 @@ async function nextBoardQuestionInner(
       (lastAnswer ? `LAST_ANSWER:\n${lastAnswer.text}\n` : "") +
       `RECENT:\n${JSON.stringify(turns.slice(-10))}`;
     const llm = await boardLlmChat(system, user, 0.55, { purpose: "generate" });
-    if (firstLine(llm)) {
-      question = firstLine(llm);
+    const line = firstLine(llm);
+    if (line && !isLowQualityQuestion(line, profile, lastBoardText, false)) {
+      question = line;
     } else {
       const fromCorpus = corpusFallbackQuestion(
         `${profile.name}|${category}|${boardN}|${persona.id}`,

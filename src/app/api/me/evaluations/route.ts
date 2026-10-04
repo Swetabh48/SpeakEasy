@@ -53,6 +53,11 @@ export async function GET() {
     .limit(200);
 
   if (error) {
+    const missing =
+      /does not exist|relation|schema cache/i.test(error.message) ||
+      error.code === "42P01" ||
+      error.code === "PGRST205";
+    if (missing) return NextResponse.json({ evaluations: [] });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

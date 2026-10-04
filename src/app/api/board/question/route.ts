@@ -3,7 +3,7 @@ import { nextBoardQuestion } from "@/lib/boardAgent/orchestrate";
 import type { BoardMemory } from "@/lib/boardAgent/memory";
 import { emptyBoardMemory } from "@/lib/boardAgent/memory";
 import type { AgentTurn } from "@/lib/boardAgent/personas";
-import { getSession, saveSession } from "@/lib/boardAgent/store";
+import { getSession, saveSession, upsertSession } from "@/lib/boardAgent/store";
 import { sentry } from "@/lib/observability/sentry";
 import type { CandidateProfile } from "@/lib/topics/board";
 
@@ -25,7 +25,8 @@ export async function POST(req: Request) {
     let profile = body.profile;
     let turns = body.turns || [];
     let memory = body.memory;
-    const rec = getSession(body.sessionId);
+    let rec = getSession(body.sessionId);
+
     if (rec) {
       profile = profile || rec.profile;
       if ((body.turns?.length || 0) >= rec.turns.length) {
@@ -35,17 +36,41 @@ export async function POST(req: Request) {
       }
       memory = memory || rec.memory || emptyBoardMemory();
     }
-    if (!profile) {
-      return NextResponse.json(
-        {
-          error:
-            "Session expired on server — profile required. Re-enter the board.",
-        },
-        { status: 404 },
+
+    // Different Vercel isolate than /session — rebuild from client state.
+    if (!rec && profile?.name?.trim()) {
+      rec = upsertSession(
+        body.sessionId,
+        profile,
+        turns,
+        memory || emptyBoardMemory(),
       );
+    } else if (rec && profile) {
+      rec = upsertSession(body.sessionId, profile, turns, memory || rec.memory);
     }
 
-    const result = await nextBoardQuestion(profile, turns, memory);
+    if (!profile?.name?.trim()) {
+      // Never 404 mid-room — return a chair welcome so the UI can continue.
+      return NextResponse.json({
+        turnId: crypto.randomUUID(),
+        question:
+          "Good morning. Please make yourself comfortable, and introduce yourself briefly — education, hometown, and why you are before this board today.",
+        speakerId: "chair",
+        speakerName: "Dr. Mehta",
+        category: "welcome",
+        isFollowUp: false,
+        move: "new_topic",
+        llmSource: "bank",
+        memory: emptyBoardMemory(),
+        trace: null,
+      });
+    }
+
+    const result = await nextBoardQuestion(
+      profile,
+      turns,
+      memory || emptyBoardMemory(),
+    );
     const boardTurn: AgentTurn = {
       role: "board",
       text: result.question,
@@ -59,6 +84,8 @@ export async function POST(req: Request) {
       rec.turns = [...turns, boardTurn];
       rec.memory = result.memory;
       saveSession(rec);
+    } else {
+      upsertSession(body.sessionId, profile, [...turns, boardTurn], result.memory);
     }
 
     return NextResponse.json({
@@ -76,8 +103,21 @@ export async function POST(req: Request) {
   } catch (e) {
     sentry.captureException(e, { route: "/api/board/question" });
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "question failed" },
-      { status: 500 },
+      {
+        turnId: crypto.randomUUID(),
+        question:
+          "Good morning. Please introduce yourself in about two minutes — your education, hometown, and what brings you to this board.",
+        speakerId: "chair",
+        speakerName: "Dr. Mehta",
+        category: "welcome",
+        isFollowUp: false,
+        move: "new_topic",
+        llmSource: "bank",
+        memory: emptyBoardMemory(),
+        trace: null,
+        warning: e instanceof Error ? e.message : "question failed",
+      },
+      { status: 200 },
     );
   }
 }

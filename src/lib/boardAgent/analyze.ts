@@ -6,6 +6,7 @@ import {
   type BoardMove,
   memoryPromptBlock,
 } from "@/lib/boardAgent/memory";
+import { isMetaQuestionRequest } from "@/lib/boardIntent";
 import type { PanelDomain } from "@/lib/boardPanel";
 import type { AgentTurn } from "@/lib/boardAgent/personas";
 import type { CandidateProfile } from "@/lib/topics/board";
@@ -132,13 +133,32 @@ export async function analyzeAnswer(
   memory: BoardMemory,
 ): Promise<AnswerAnalysis> {
   const fallback = heuristicAnalyze(answer, turns, memory);
+  const words = answer.trim().split(/\s+/).filter(Boolean).length;
+
+  // Meta / very short answers: never let a weak LLM invent "new_topic".
+  if (isMetaQuestionRequest(answer) || words < 14) {
+    if (isMetaQuestionRequest(answer)) {
+      return {
+        ...fallback,
+        suggestedMove: "clarify",
+        hedging: 0.8,
+        specificity: 0.1,
+        quoteSnippet: answer.trim().slice(0, 120),
+        threadTopic: "candidate asked for clarification",
+        source: "heuristic",
+      };
+    }
+    return fallback;
+  }
+
   const system =
     "You analyze a candidate's board-interview answer. " +
     "Return ONLY a JSON object with keys: specificity (0-1), hedging (0-1), " +
     "contradictionRisk (0-1), extractClaims (string[]), suggestedMove " +
     "(press|clarify|new_topic|invite_example|bridge_close), " +
     "bestSpeakerDomain (chair-daf|subject|affairs-ethics|quiet|skeptic), " +
-    "threadTopic (short), quoteSnippet (short quote from answer). No markdown.";
+    "threadTopic (short), quoteSnippet (short quote from answer). No markdown. " +
+    "If the candidate is confused or asking what a term means, suggestedMove MUST be clarify.";
   const user =
     `PROFILE:\n${JSON.stringify(profile)}\n\n` +
     `BOARD_MEMORY:\n${memoryPromptBlock(memory)}\n\n` +
@@ -152,7 +172,18 @@ export async function analyzeAnswer(
   });
   const parsed = extractJsonObject(llm);
   if (!parsed) return fallback;
-  return normalizeAnalysis(parsed, fallback);
+  const normalized = normalizeAnalysis(parsed, fallback);
+  // Guardrail: short thin answers must not become random new topics
+  if (
+    words < 40 &&
+    (fallback.suggestedMove === "press" ||
+      fallback.suggestedMove === "clarify" ||
+      fallback.suggestedMove === "invite_example") &&
+    normalized.suggestedMove === "new_topic"
+  ) {
+    return { ...normalized, suggestedMove: fallback.suggestedMove, source: "heuristic" };
+  }
+  return normalized;
 }
 
 export function moveIsFollowUp(move: BoardMove): boolean {
