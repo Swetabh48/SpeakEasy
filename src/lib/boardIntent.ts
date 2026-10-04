@@ -43,9 +43,12 @@ const CLARIFY_PATTERNS = [
   /\bsimplify\b/,
   /\bin (simple|simpler|plain) (words|terms)\b/,
   /\bi don'?t (get|follow) (it|this|you)?\b/,
+  /\bi don'?t know (what|about)\b/,
+  /\bi do not know (what|about)\b/,
+  /\bno idea what\b/,
 ];
 
-/** "what even is X" / "what is henna culture" — candidate stuck on a term, not answering. */
+/** Candidate stuck on a term or asking what something is — not answering. */
 const TERM_CONFUSION_PATTERNS = [
   /\bwhat (even )?is\b/,
   /\bwhat (even )?are\b/,
@@ -53,7 +56,7 @@ const TERM_CONFUSION_PATTERNS = [
   /\bmeaning of\b/,
   /\bi (never )?heard of\b/,
   /\bnever heard (of|about)\b/,
-  /\bwhich (one|thing|culture|policy|scheme)\b/,
+  /\bwhich (one|thing|policy|scheme)\b/,
   /\bhuh\b/,
   /\bcome again\b/,
 ];
@@ -72,7 +75,6 @@ const ABUSE_PATTERNS = [
 export function isRepeatRequest(text: string): boolean {
   const t = normalize(text);
   if (!t) return false;
-  // Allow slightly longer utterances that are still only asking to hear it again
   if (t.split(" ").length > 40) return false;
   return REPEAT_PATTERNS.some((p) => p.test(t));
 }
@@ -84,24 +86,32 @@ export function isClarifyRequest(text: string): boolean {
   return CLARIFY_PATTERNS.some((p) => p.test(t));
 }
 
-/** Short "what is X?" about a word in the board question — hold the same topic. */
+/** Short "what is X?" — candidate not answering the substance. */
 export function isTermConfusionRequest(text: string): boolean {
   const t = normalize(text);
   if (!t) return false;
   const words = t.split(" ").filter(Boolean);
   if (words.length > 18) return false;
   if (TERM_CONFUSION_PATTERNS.some((p) => p.test(t))) return true;
-  // Very short interrogative ("what?", "sorry what?")
   if (words.length <= 6 && /\b(what|sorry|pardon|again)\b/.test(t)) return true;
   return false;
 }
 
-/** Repeat / clarify / term confusion — do not advance the interview. */
+/** Repeat / clarify / term confusion — do not treat as a finished answer. */
 export function isMetaQuestionRequest(text: string): boolean {
   return (
     isRepeatRequest(text) ||
     isClarifyRequest(text) ||
     isTermConfusionRequest(text)
+  );
+}
+
+/** Pure "say it again" — safe to restate locally. Clarify needs the brain. */
+export function isPureRepeatRequest(text: string): boolean {
+  return (
+    isRepeatRequest(text) &&
+    !isClarifyRequest(text) &&
+    !isTermConfusionRequest(text)
   );
 }
 
@@ -111,31 +121,29 @@ export function containsAbusiveLanguage(text: string): boolean {
   return ABUSE_PATTERNS.some((p) => p.test(t));
 }
 
-/** Plain-language restatement for confused candidates. */
-export function clarifyQuestionText(question: string): string {
-  const q = question.trim();
-  return (
-    `Of course — let me say that more simply. ${q} ` +
-    `Answer in plain terms: what you would do, and why.`
+/** Last board turn looked like an opening intro ask. */
+export function isIntroPrompt(question: string | null | undefined): boolean {
+  if (!question) return false;
+  return /\b(introduce yourself|introduction|tell us about yourself|make yourself comfortable)\b/i.test(
+    question,
   );
 }
 
-/** When they ask what a term means, define lightly then re-ask the same board point. */
-export function clarifyTermConfusion(
-  question: string,
-  candidateText: string,
-): string {
-  const q = question.trim();
-  const termMatch = normalize(candidateText).match(
-    /\bwhat (even )?(is|are)\s+(.+)$/,
+/** Name-only / one-liner after an intro ask — board should press, not hop topics. */
+export function isThinIntroAnswer(
+  answer: string,
+  lastBoardQuestion: string | null | undefined,
+): boolean {
+  if (!isIntroPrompt(lastBoardQuestion)) return false;
+  const words = answer.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 35) return true;
+  const t = normalize(answer);
+  const hasEdu = /\b(school|college|university|degree|graduat|b\.?tech|b\.?a|m\.?a|engineer|studied)\b/.test(
+    t,
   );
-  const term = termMatch?.[3]?.replace(/\?+$/, "").trim();
-  if (term) {
-    return (
-      `Fair question. When I referred to "${term}", I meant it in the sense used in that question — ` +
-      `not a trick word. Let me put the whole question simply. ${q} ` +
-      `Give a direct view in plain words.`
-    );
-  }
-  return clarifyQuestionText(q);
+  const hasPlace = /\b(from|born|hometown|village|district|state|city)\b/.test(t);
+  const hasWhy = /\b(civil service|upsc|ias|ips|public service|why i|want to)\b/.test(
+    t,
+  );
+  return !(hasEdu || hasPlace || hasWhy);
 }

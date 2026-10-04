@@ -16,6 +16,9 @@ type StylePack = {
 
 const STYLE = pack as StylePack;
 
+/** Minimum retrieval score before a corpus line may be spoken to the candidate. */
+const MIN_SPOKEN_SCORE = 2.5;
+
 function tokens(text: string): Set<string> {
   return new Set(
     (text.toLowerCase().match(/[a-z]{4,}/g) || []).filter(
@@ -36,6 +39,9 @@ function tokens(text: string): Set<string> {
           "they",
           "them",
           "then",
+          "please",
+          "briefly",
+          "before",
         ].includes(w),
     ),
   );
@@ -55,7 +61,7 @@ function scorePair(query: string, pair: StylePair): number {
   return hit;
 }
 
-/** Top style exemplars from mock-interview corpus for prompting / fallbacks. */
+/** Top style exemplars for prompting (may include weaker fills for few-shot only). */
 export function retrieveStyleExamples(
   query: string,
   n = 3,
@@ -65,7 +71,6 @@ export function retrieveStyleExamples(
     .sort((a, b) => b.s - a.s);
   const top = scored.filter((x) => x.s > 0).slice(0, n).map((x) => x.pair);
   if (top.length >= n) return top;
-  // Fill with diverse high-quality pairs
   for (const p of STYLE.pairs) {
     if (top.length >= n) break;
     if (!top.includes(p) && p.board) top.push(p);
@@ -90,29 +95,40 @@ export function stylePromptBlock(
     .join("\n\n");
 }
 
-/** Corpus-backed spoken turn when LLM is unavailable. */
+/**
+ * Corpus line only when retrieval actually matches the moment.
+ * Returns "" so the orchestrator uses DAF-grounded banks instead of random PDF lines.
+ */
 export function corpusFallbackQuestion(
   seed: string,
   lastAnswer?: string | null,
   preferFollowUp = false,
 ): string {
   const q = [seed, lastAnswer || ""].filter(Boolean).join(" ");
-  const ex = retrieveStyleExamples(q, 8);
+  const scored = STYLE.pairs
+    .map((pair) => ({ pair, s: scorePair(q, pair) }))
+    .sort((a, b) => b.s - a.s);
+
   if (preferFollowUp && lastAnswer) {
-    const withPrior = ex.find((e) => e.priorAnswer && e.board);
+    const withPrior = scored.find(
+      (x) => x.s >= MIN_SPOKEN_SCORE && x.pair.priorAnswer && x.pair.board,
+    );
     if (withPrior) {
       const snip = lastAnswer.split(/\s+/).slice(0, 16).join(" ");
-      // Adapt exemplar press to this candidate's words
       return (
-        withPrior.board.replace(/\b(you said|you spoke about)[^.?]*/i, "").trim() ||
+        withPrior.pair.board
+          .replace(/\b(you said|you spoke about)[^.?]*/i, "")
+          .trim() ||
         `You said, roughly, "${snip}". Stay with that — what exactly would you do first, and who is affected?`
       );
     }
-    const snip = lastAnswer.split(/\s+/).slice(0, 18).join(" ");
-    return `You mentioned "${snip}". Give one concrete decision — not a speech — and who lives with the consequences.`;
+    return "";
   }
-  const pick = ex[Math.abs(hash(seed)) % Math.max(1, ex.length)];
-  return pick?.board || "Please introduce yourself briefly — education, hometown, and why you are here.";
+
+  const eligible = scored.filter((x) => x.s >= MIN_SPOKEN_SCORE);
+  if (!eligible.length) return "";
+  const pick = eligible[Math.abs(hash(seed)) % eligible.length];
+  return pick?.pair.board || "";
 }
 
 function hash(s: string): number {

@@ -1,14 +1,20 @@
-/** Board LLM: free hosted (EVALUATOR_*) → optional Ollama → empty (corpus/banks). */
+/**
+ * Roles:
+ *   - generate  → YOUR trained board brain (Modal EVALUATOR / HF / Ollama) asks questions
+ *   - analyze   → Gemini supports (understand answer, pick move)
+ *   - support   → Gemini only polishes / repairs a draft from YOUR model (never invents the topic)
+ */
 
 export type BoardLlmMeta = {
-  source: "evaluator" | "ollama" | "none";
+  source: "gemini" | "evaluator" | "ollama" | "none";
   model: string;
+  /** True when Gemini polished a draft from your trained model */
+  supported?: boolean;
 };
 
 export type BoardLlmOptions = {
   timeoutMs?: number;
-  /** Prefer longer waits for local generation turns */
-  purpose?: "analyze" | "generate";
+  purpose?: "analyze" | "generate" | "support";
 };
 
 let lastMeta: BoardLlmMeta = { source: "none", model: "" };
@@ -44,10 +50,6 @@ export function extractJsonObject(text: string): Record<string, unknown> | null 
   }
 }
 
-/**
- * Ollama only when useful. Never probe 127.0.0.1 on Vercel — that was hanging
- * board turns until the serverless function was killed (UI stuck on "preparing").
- */
 function resolveOllamaBaseUrl(): string | null {
   const explicit = process.env.OLLAMA_BASE_URL?.trim();
   if (explicit) {
@@ -60,6 +62,15 @@ function resolveOllamaBaseUrl(): string | null {
   return "http://127.0.0.1:11434";
 }
 
+function geminiApiKey(): string | undefined {
+  return (
+    process.env.GEMINI_API_KEY?.trim() ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ||
+    process.env.GOOGLE_API_KEY?.trim() ||
+    undefined
+  );
+}
+
 async function chatCompletions(
   baseUrl: string,
   model: string,
@@ -69,7 +80,7 @@ async function chatCompletions(
   temperature: number,
   timeoutMs: number,
 ): Promise<string> {
-  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/chat/completions`, {
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -145,24 +156,42 @@ async function resolveOllamaModel(baseUrl: string): Promise<string> {
   return "llama3.1:latest";
 }
 
-/**
- * Free hosted OpenAI-compatible:
- * EVALUATOR_* → Hugging Face router (optional) → Ollama (local / explicit) → "".
- */
-export async function boardLlmChat(
+async function callGemini(
   system: string,
   user: string,
-  temperature = 0.55,
-  options: BoardLlmOptions = {},
+  temperature: number,
+  timeoutMs: number,
 ): Promise<string> {
-  // Keep under Vercel maxDuration (60s) so corpus fallback always runs.
-  const hostedTimeout =
-    options.timeoutMs ??
-    (options.purpose === "generate" ? 28_000 : 8_000);
-  const ollamaTimeout =
-    options.timeoutMs ??
-    (options.purpose === "generate" ? 25_000 : 8_000);
+  const key = geminiApiKey();
+  if (!key) return "";
+  const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash";
+  try {
+    const content = await chatCompletions(
+      "https://generativelanguage.googleapis.com/v1beta/openai",
+      model,
+      key,
+      system,
+      user,
+      temperature,
+      timeoutMs,
+    );
+    if (content) {
+      lastMeta = { source: "gemini", model, supported: true };
+      return content;
+    }
+  } catch {
+    /* empty */
+  }
+  return "";
+}
 
+async function callTrainedBrain(
+  system: string,
+  user: string,
+  temperature: number,
+  hostedTimeout: number,
+  ollamaTimeout: number,
+): Promise<string> {
   const customUrl = process.env.EVALUATOR_URL?.trim();
   const customModel = process.env.EVALUATOR_MODEL?.trim() || "speakeasy-board";
   const ollamaUrl = resolveOllamaBaseUrl();
@@ -177,8 +206,9 @@ export async function boardLlmChat(
 
   if (customUrl) {
     try {
+      const base = customUrl.replace(/\/$/, "").replace(/\/v1$/, "");
       const content = await chatCompletions(
-        customUrl,
+        `${base}/v1`,
         customModel,
         process.env.EVALUATOR_API_KEY,
         system,
@@ -198,7 +228,7 @@ export async function boardLlmChat(
   if (hfToken && !customUrl) {
     try {
       const content = await chatCompletions(
-        "https://router.huggingface.co",
+        "https://router.huggingface.co/v1",
         hfModel,
         hfToken,
         system,
@@ -231,9 +261,89 @@ export async function boardLlmChat(
         return content;
       }
     } catch {
-      /* corpus / banks */
+      /* empty */
     }
   }
+
+  return "";
+}
+
+/**
+ * Gemini support: polish a draft from YOUR trained model.
+ * Must keep the same topic/intent — does not invent a new board question.
+ */
+export async function polishBoardDraft(
+  draft: string,
+  context: string,
+): Promise<string> {
+  const draftLine = draft.trim();
+  if (!draftLine) return "";
+  const system =
+    "You support a UPSC mock board model. You are given a DRAFT question from that trained model. " +
+    "Rewrite it in clear, spoken board-room English (1–3 sentences). " +
+    "KEEP the same topic and intent. Fix garbled words using PROFILE context when obvious. " +
+    "Do NOT invent a new topic. Do NOT add policy essays unrelated to the draft. " +
+    "Return ONLY the spoken question text.";
+  const user = `DRAFT_FROM_TRAINED_MODEL:\n${draftLine}\n\nCONTEXT:\n${context}`;
+  const priorSource = lastMeta.source;
+  const priorModel = lastMeta.model;
+  const polished = await callGemini(system, user, 0.3, 12_000);
+  if (!polished) return "";
+  const line = polished.split("\n")[0]?.trim() || "";
+  if (line) {
+    lastMeta = {
+      source:
+        priorSource === "ollama" || priorSource === "evaluator"
+          ? priorSource
+          : "evaluator",
+      model: priorModel || "speakeasy-board",
+      supported: true,
+    };
+  }
+  return line;
+}
+
+/**
+ * - generate → YOUR mock-trained brain asks (Modal / HF / Ollama). Gemini does not author.
+ * - analyze / support → Gemini understands / helps; never replaces your model as the questioner.
+ */
+export async function boardLlmChat(
+  system: string,
+  user: string,
+  temperature = 0.55,
+  options: BoardLlmOptions = {},
+): Promise<string> {
+  const purpose = options.purpose || "generate";
+  const hostedTimeout =
+    options.timeoutMs ?? (purpose === "generate" ? 28_000 : 8_000);
+  const ollamaTimeout =
+    options.timeoutMs ?? (purpose === "generate" ? 25_000 : 8_000);
+
+  if (purpose === "analyze" || purpose === "support") {
+    const gemini = await callGemini(system, user, temperature, hostedTimeout);
+    if (gemini) return gemini;
+    // Soft fallback: trained brain may still return usable JSON / text
+    const trained = await callTrainedBrain(
+      system,
+      user,
+      temperature,
+      hostedTimeout,
+      ollamaTimeout,
+    );
+    if (trained) return trained;
+    lastMeta = { source: "none", model: "" };
+    return "";
+  }
+
+  // generate: trained model is the questioner
+  const trained = await callTrainedBrain(
+    system,
+    user,
+    temperature,
+    hostedTimeout,
+    ollamaTimeout,
+  );
+  if (trained) return trained;
 
   lastMeta = { source: "none", model: "" };
   return "";

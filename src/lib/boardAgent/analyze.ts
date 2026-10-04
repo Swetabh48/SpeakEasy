@@ -6,7 +6,7 @@ import {
   type BoardMove,
   memoryPromptBlock,
 } from "@/lib/boardAgent/memory";
-import { isMetaQuestionRequest } from "@/lib/boardIntent";
+import { isMetaQuestionRequest, isThinIntroAnswer } from "@/lib/boardIntent";
 import type { PanelDomain } from "@/lib/boardPanel";
 import type { AgentTurn } from "@/lib/boardAgent/personas";
 import type { CandidateProfile } from "@/lib/topics/board";
@@ -47,13 +47,18 @@ function heuristicAnalyze(
   const hints = followUpHints(answer);
   const words = answer.trim().split(/\s+/).filter(Boolean);
   const n = words.length;
-  const softFollow = shouldFollowUp(answer, turns);
+  const lastBoard = [...turns].reverse().find((t) => t.role === "board");
+  const thinIntro = isThinIntroAnswer(answer, lastBoard?.text);
+  const softFollow = shouldFollowUp(answer, turns) || thinIntro;
   const strongThin =
+    thinIntro ||
     hints.includes("answer_was_very_short") ||
     hints.includes("answer_was_hedged") ||
     hints.includes("answer_was_vague");
   let suggestedMove: BoardMove = "new_topic";
-  if (strongThin || softFollow) {
+  if (thinIntro) {
+    suggestedMove = "invite_example";
+  } else if (strongThin || softFollow) {
     if (hints.includes("answer_was_very_short")) suggestedMove = "invite_example";
     else if (hints.includes("answer_was_hedged") || hints.includes("answer_was_vague"))
       suggestedMove = "clarify";
@@ -70,8 +75,9 @@ function heuristicAnalyze(
   );
 
   let bestSpeakerDomain: PanelDomain = "chair-daf";
-  if (suggestedMove === "press" || suggestedMove === "clarify") {
-    const lastBoard = [...turns].reverse().find((t) => t.role === "board");
+  if (thinIntro) {
+    bestSpeakerDomain = "chair-daf";
+  } else if (suggestedMove === "press" || suggestedMove === "clarify") {
     const open = memory.openThreads[memory.openThreads.length - 1];
     if (open) {
       const map: Record<string, PanelDomain> = {

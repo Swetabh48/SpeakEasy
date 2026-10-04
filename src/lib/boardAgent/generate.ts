@@ -3,6 +3,21 @@ import { followUpHints } from "@/lib/boardAgent/followup";
 import { hashPick, type AgentTurn } from "@/lib/boardAgent/personas";
 import type { CandidateProfile } from "@/lib/topics/board";
 
+/** Thin intro — stay on the opening ask; do not hop to a random topic. */
+export function fallbackIncompleteIntro(
+  profile: CandidateProfile,
+  persona: PanelMember,
+): string {
+  const name = profile.name || "Candidate";
+  const state = profile.homeState || "your state";
+  const seed = `${name}|intro-press|${persona.id}|${state}`;
+  return hashPick(seed, [
+    `Thank you, ${name}. That was only a beginning. Please continue your introduction — education, hometown in ${state}, and why you want the civil services. About a minute is fine.`,
+    `We still need the rest, ${name}. Education, where you grew up in ${state}, and what draws you to public service — go ahead.`,
+    `${name}, stay with the introduction for a moment. Studies, background, and why this board — please complete that before we move on.`,
+  ]);
+}
+
 export function fallbackFollowUp(
   profile: CandidateProfile,
   persona: PanelMember,

@@ -25,13 +25,9 @@ import {
   stopBoardSpeech,
 } from "@/lib/boardSpeech";
 import {
-  clarifyQuestionText,
-  clarifyTermConfusion,
   containsAbusiveLanguage,
-  isClarifyRequest,
   isMetaQuestionRequest,
-  isRepeatRequest,
-  isTermConfusionRequest,
+  isPureRepeatRequest,
 } from "@/lib/boardIntent";
 import { isMobileLike } from "@/lib/device";
 import type { ViolationKind } from "@/lib/proctor/types";
@@ -461,35 +457,37 @@ export function BoardInterview() {
         return;
       }
 
-      // "Please repeat / be clearer / what even is X" must NOT advance to a new topic
-      if (isMetaQuestionRequest(text) && currentQ && speaker) {
+      // Pure "please repeat" — restate locally. Clarify / "what is X" goes to the brain.
+      if (isPureRepeatRequest(text) && currentQ && speaker) {
         setTurns((prev) => [
           ...prev,
           { role: "candidate", text, timestampMs: Date.now() },
         ]);
-        const termConfused = isTermConfusionRequest(text);
-        const clarify =
-          termConfused ||
-          (isClarifyRequest(text) && !isRepeatRequest(text));
-        const spoken = termConfused
-          ? clarifyTermConfusion(currentQ, text)
-          : clarify
-            ? clarifyQuestionText(currentQ)
-            : `Certainly. The question again. ${currentQ}`;
-        setStatus(
-          clarify
-            ? `${speaker.name} is clarifying…`
-            : `${speaker.name} is repeating the question…`,
-        );
+        const spoken = `Certainly. The question again. ${currentQ}`;
+        setStatus(`${speaker.name} is repeating the question…`);
         setSpeaking(true);
         speakAsMember(spoken, speaker, () => {
           setSpeaking(false);
           setStatus("Your turn — speak when ready.");
-          if (clarify) setCurrentQ(spoken);
           scheduleTakeYourTime();
           openMicAfterPanel();
         });
-        if (clarify) setCurrentQ(spoken);
+        setBusy(false);
+        submitLock.current = false;
+        return;
+      }
+
+      // "I don't know what X is" / clarify — let Gemini+brain pivot or explain (no circular template)
+      if (isMetaQuestionRequest(text) && currentQ) {
+        setTurns((prev) => [
+          ...prev,
+          { role: "candidate", text, timestampMs: Date.now() },
+        ]);
+        await submitBoardAnswer(sessionId, text, proctor.violations);
+        proctor.clearViolations();
+        setCurrentQ(null);
+        setStatus("Panel responding…");
+        await askNext(sessionId);
         setBusy(false);
         submitLock.current = false;
         return;
