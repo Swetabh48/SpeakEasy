@@ -106,6 +106,7 @@ export function speakAsMember(
 export function speakDisciplineWarning(
   kind: string,
   member: PanelMember,
+  onEnd?: () => void,
 ): void {
   const lines: Record<string, string> = {
     "too-close":
@@ -127,7 +128,19 @@ export function speakDisciplineWarning(
   const text =
     lines[kind] ||
     "Candidate, maintain proper board-room conduct.";
-  speakAsMember(text, member);
+
+  // Never cut off the chair/panel mid-question — that used to open the mic early
+  // and leave the room feeling "stuck" after discipline spam.
+  if (
+    typeof window !== "undefined" &&
+    window.speechSynthesis &&
+    (window.speechSynthesis.speaking || window.speechSynthesis.pending)
+  ) {
+    onEnd?.();
+    return;
+  }
+
+  speakAsMember(text, member, onEnd);
 }
 
 export function stopBoardSpeech(): void {

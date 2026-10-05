@@ -25,7 +25,14 @@ export function useProctorCamera(enabled: boolean) {
   const push = useCallback((kind: ViolationKind) => {
     if (!startedAt.current) return;
     const now = Date.now();
-    const gap = kind === "too-close" || kind === "no-face" ? 4000 : 1500;
+    // Face proximity used to fire every 4s and trigger spoken warnings that
+    // cancelled panel TTS / broke browser STT. Keep logging sparse.
+    const gap =
+      kind === "too-close" || kind === "no-face"
+        ? 12_000
+        : kind === "multi-face"
+          ? 8_000
+          : 2_500;
     if (now - (lastPush.current[kind] || 0) < gap) return;
     lastPush.current[kind] = now;
     setViolations((prev) => [

@@ -89,8 +89,13 @@ export function BoardInterview() {
   const submitAnswerRef = useRef<(opts?: { fromRamble?: boolean }) => Promise<void>>(
     async () => {},
   );
+  const speakingRef = useRef(false);
+  const answeringRef = useRef(false);
+  const lastDisciplineVoiceAt = useRef(0);
   profileRef.current = profile;
   turnsRef.current = turns;
+  speakingRef.current = speaking;
+  answeringRef.current = answering;
 
   const recorder = useAudioRecorder();
   const captions = useBackupSpeechTranscript();
@@ -131,8 +136,18 @@ export function BoardInterview() {
     }
     proctor.setOnViolation((kind: ViolationKind) => {
       sessionViolations.current.push({ kind, atMs: Date.now() });
-      const stern = getPanelMember("member-d");
       setStatus(`Discipline: ${kind.replace(/-/g, " ")}`);
+
+      // Voice warnings during panel speech or candidate listening kill Chrome STT
+      // (speechSynthesis.cancel + TTS every ~4s for "too-close"). Log + UI only then.
+      if (speakingRef.current || answeringRef.current) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastDisciplineVoiceAt.current < 45_000) return;
+      lastDisciplineVoiceAt.current = now;
+      const stern = getPanelMember("member-d");
       speakDisciplineWarning(kind, stern);
     });
     return () => proctor.setOnViolation(null);
@@ -771,7 +786,9 @@ export function BoardInterview() {
             )}
             {answering && !speaking && (
               <p className="mt-3 text-[11px] text-[var(--muted)]">
-                Listening — pause when finished
+                {captions.live
+                  ? "Listening — pause when finished"
+                  : "Listening — speak now (check mic). Press Enter if pause-detect misses you."}
               </p>
             )}
           </div>
